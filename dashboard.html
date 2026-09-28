@@ -1,0 +1,801 @@
+<title>Panel Forerunner 265</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-page:   #f9f9f7;
+    --surface-card:   #fcfcfb;
+    --surface-sunken: #f2f1ec;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --border:         rgba(11,11,11,0.10);
+    --border-strong:  rgba(11,11,11,0.16);
+    --grid:           #e1e0d9;
+    --baseline:       #c3c2b7;
+    --accent:         #2a78d6;
+    --accent-soft:    #cde2fb;
+    --cat-running:    #2a78d6;
+    --cat-cycling:    #eb6834;
+    --cat-strength:   #1baf7a;
+    --cat-yoga:       #eda100;
+    --cat-padel:      #e87ba4;
+    --cat-walking:    #4a3aa7;
+    --good:           #0ca30c;
+    --warning:        #fab219;
+    --critical:       #d03b3b;
+    --success-text:   #006300;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --surface-page:   #0d0d0d;
+      --surface-card:   #1a1a19;
+      --surface-sunken: #201f1d;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --border:         rgba(255,255,255,0.10);
+      --border-strong:  rgba(255,255,255,0.16);
+      --grid:           #2c2c2a;
+      --baseline:       #383835;
+      --accent:         #3987e5;
+      --accent-soft:    #184f95;
+      --cat-running:    #3987e5;
+      --cat-cycling:    #d95926;
+      --cat-strength:   #199e70;
+      --cat-yoga:       #c98500;
+      --cat-padel:      #d55181;
+      --cat-walking:    #9085e9;
+      --good:           #0ca30c;
+      --warning:        #fab219;
+      --critical:       #e66767;
+      --success-text:   #0ca30c;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-page:   #0d0d0d;
+    --surface-card:   #1a1a19;
+    --surface-sunken: #201f1d;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --border:         rgba(255,255,255,0.10);
+    --border-strong:  rgba(255,255,255,0.16);
+    --grid:           #2c2c2a;
+    --baseline:       #383835;
+    --accent:         #3987e5;
+    --accent-soft:    #184f95;
+    --cat-running:    #3987e5;
+    --cat-cycling:    #d95926;
+    --cat-strength:   #199e70;
+    --cat-yoga:       #c98500;
+    --cat-padel:      #d55181;
+    --cat-walking:    #9085e9;
+    --good:           #0ca30c;
+    --warning:        #fab219;
+    --critical:       #e66767;
+    --success-text:   #0ca30c;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--surface-page);
+    color: var(--text-primary);
+    font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding-inline: 16px;
+    padding-block: 28px 56px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+
+  h1, h2, h3 { font-family: "Bricolage Grotesque", system-ui, sans-serif; margin: 0; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  header.top {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  }
+  header.top .eyebrow {
+    text-transform: uppercase; letter-spacing: 0.08em; font-size: 11.5px; color: var(--text-muted);
+    font-weight: 600; margin-bottom: 6px;
+  }
+  header.top h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
+  header.top .meta { text-align: right; font-size: 12.5px; color: var(--text-muted); }
+  header.top .meta .sync { color: var(--text-secondary); font-weight: 600; }
+
+  .card {
+    background: var(--surface-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+  }
+  .section-title {
+    font-size: 15px; font-weight: 700; margin-bottom: 4px;
+  }
+  .section-sub { font-size: 12.5px; color: var(--text-muted); margin-bottom: 14px; }
+
+  /* Stat tiles */
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  @media (max-width: 720px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
+  .tile {
+    background: var(--surface-card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0;
+  }
+  .tile .label { font-size: 11.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+  .tile .value { font-family: "Bricolage Grotesque", system-ui, sans-serif; font-size: 28px; font-weight: 700; line-height: 1.1; }
+  .tile .value .unit { font-size: 14px; color: var(--text-secondary); font-weight: 500; margin-left: 3px; }
+  .tile .foot { font-size: 12px; color: var(--text-secondary); }
+  .tile .foot.up { color: var(--success-text); }
+
+  /* Insights */
+  .insights { display: flex; flex-direction: column; gap: 10px; }
+  .insight { display: flex; gap: 10px; padding: 12px 14px; border-radius: 10px; background: var(--surface-sunken); border: 1px solid var(--border); }
+  .insight .dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex: none; }
+  .insight .dot.good { background: var(--good); }
+  .insight .dot.warning { background: var(--warning); }
+  .insight .dot.neutral { background: var(--accent); }
+  .insight p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--text-secondary); }
+  .insight strong { color: var(--text-primary); }
+
+  /* Training load */
+  .load-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 720px) { .load-grid { grid-template-columns: 1fr; } }
+  .acwr-row { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+  .acwr-row .big { font-family: "Bricolage Grotesque", system-ui, sans-serif; font-size: 34px; font-weight: 700; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 700;
+    padding: 3px 9px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .badge.good { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); }
+  .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .acute-chronic { display: flex; gap: 18px; margin-top: 14px; }
+  .ac-item { flex: 1; }
+  .ac-item .l { font-size: 11.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 4px;}
+  .ac-item .v { font-size: 18px; font-weight: 700; font-family: "Bricolage Grotesque", system-ui, sans-serif; }
+  .ac-bar-track { height: 6px; border-radius: 4px; background: var(--grid); margin-top: 8px; overflow: hidden; }
+  .ac-bar-fill { height: 100%; border-radius: 4px; background: var(--accent); }
+
+  .load-bars { display: flex; flex-direction: column; gap: 16px; }
+  .load-bar-row .lb-head { display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 6px; }
+  .load-bar-row .lb-head .name { color: var(--text-secondary); font-weight: 600; }
+  .load-bar-row .lb-head .val { color: var(--text-primary); font-weight: 700; font-family: "Bricolage Grotesque", system-ui, sans-serif; }
+  .lb-track { position: relative; height: 20px; background: var(--surface-sunken); border-radius: 6px; }
+  .lb-target { position: absolute; top: 0; bottom: 0; background: var(--border-strong); border-radius: 6px; }
+  .lb-fill { position: absolute; top: 5px; bottom: 5px; left: 0; border-radius: 4px; background: var(--accent); }
+  .lb-fill.short { background: var(--warning); }
+  .lb-caption { font-size: 11px; color: var(--text-muted); margin-top: 5px; }
+
+  /* Line charts */
+  .charts-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  @media (max-width: 900px) { .charts-row { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 480px) { .charts-row { grid-template-columns: 1fr; } }
+  .chart-box .chart-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+  .chart-box .chart-title { font-size: 12.5px; font-weight: 700; color: var(--text-secondary); }
+  .chart-box .chart-last { font-size: 15px; font-weight: 700; font-family: "Bricolage Grotesque", system-ui, sans-serif; }
+  .chart-box svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .chart-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .chart-area { fill: var(--accent); opacity: 0.08; }
+  .chart-grid line { stroke: var(--grid); stroke-width: 1; }
+  .chart-axis-label { fill: var(--text-muted); font-size: 9.5px; font-family: "IBM Plex Sans", system-ui, sans-serif; }
+  .chart-dot-end { fill: var(--accent); }
+  .chart-hover-line { stroke: var(--baseline); stroke-width: 1; opacity: 0; }
+  .chart-hover-dot { fill: var(--surface-card); stroke: var(--accent); stroke-width: 2; opacity: 0; }
+  .chart-tip {
+    position: absolute; pointer-events: none; background: var(--text-primary); color: var(--surface-card);
+    font-size: 11px; padding: 4px 7px; border-radius: 6px; transform: translate(-50%, -130%);
+    white-space: nowrap; opacity: 0; transition: opacity 0.08s; z-index: 5; font-variant-numeric: tabular-nums;
+  }
+  .chart-wrap { position: relative; }
+
+  /* Activity list */
+  .act-list { display: flex; flex-direction: column; }
+  .act-row {
+    display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--border);
+  }
+  .act-row:last-child { border-bottom: none; }
+  .act-pill {
+    flex: none; width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
+    font-size: 15px;
+  }
+  .act-main { flex: 1; min-width: 0; }
+  .act-main .name { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .act-main .sub { font-size: 11.5px; color: var(--text-muted); }
+  .act-stats { display: flex; gap: 16px; flex: none; }
+  .act-stats .s { text-align: right; min-width: 46px; }
+  .act-stats .s .v { font-size: 13px; font-weight: 700; font-family: "Bricolage Grotesque", system-ui, sans-serif; }
+  .act-stats .s .l { font-size: 9.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  @media (max-width: 560px) { .act-stats { gap: 10px; } .act-stats .s { min-width: 38px; } .act-main .sub { display: none; } }
+
+  .zone {
+    flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 38px; height: 22px;
+    padding: 0 7px; border-radius: 6px; font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+    font-family: "Bricolage Grotesque", system-ui, sans-serif; color: var(--zc);
+    background: color-mix(in srgb, var(--zc) 16%, transparent); border: 1px solid color-mix(in srgb, var(--zc) 35%, transparent);
+  }
+  .zone.z0 { --zc: var(--text-muted); }
+  .zone.z1 { --zc: #7a8fa6; } .zone.z2 { --zc: var(--accent); } .zone.z3 { --zc: #1baf7a; }
+  .zone.z4 { --zc: #e07a1f; } .zone.z5 { --zc: var(--critical); }
+  @media (max-width: 420px) { .act-stats .s:nth-child(3) { display: none; } }
+  .zone-scale { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 10px; font-size: 11.5px; color: var(--text-secondary); align-items: center; }
+  .zone-scale .zone { min-width: 30px; height: 20px; font-size: 11px; }
+  .zone-note { font-size: 11px; color: var(--text-muted); margin-top: 8px; line-height: 1.45; }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
+  .legend .li { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-secondary); }
+  .legend .li .sw { width: 9px; height: 9px; border-radius: 3px; }
+
+  /* 10K track */
+  .track-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 24px; }
+  @media (max-width: 720px) { .track-grid { grid-template-columns: 1fr; } }
+  .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border-radius: 10px;
+    background: var(--surface-sunken); border: 1px solid var(--border); min-width: 76px;
+  }
+  .chip .chip-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  .chip .chip-val { font-size: 15px; font-weight: 700; font-family: "Bricolage Grotesque", system-ui, sans-serif; }
+  .track-note { font-size: 11.5px; color: var(--text-muted); margin-top: 10px; line-height: 1.5; }
+
+  .ref-run { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+  .ref-run .rr-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+  .ref-run .rr-title { font-size: 12.5px; font-weight: 700; color: var(--text-secondary); }
+  .ref-run .rr-date { font-size: 11.5px; color: var(--text-muted); }
+  .rr-stats { display: flex; gap: 22px; }
+  .rr-stats .v { font-size: 22px; font-weight: 700; font-family: "Bricolage Grotesque", system-ui, sans-serif; }
+  .rr-stats .l { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 2px; }
+
+  .pr-list { display: flex; flex-direction: column; gap: 10px; }
+  .pr-item { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 12px; background: var(--surface-sunken); border-radius: 10px; border: 1px solid var(--border); }
+  .pr-item .pr-label { font-size: 12px; color: var(--text-secondary); font-weight: 600; }
+  .pr-item .pr-val { font-size: 16px; font-weight: 700; font-family: "Bricolage Grotesque", system-ui, sans-serif; }
+  .pr-item .pr-date { font-size: 10.5px; color: var(--text-muted); display: block; margin-top: 2px; }
+
+  .splits-bars { display: flex; gap: 6px; align-items: flex-end; height: 64px; margin-top: 10px; }
+  .splits-bars .sb { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; height: 100%; }
+  .splits-bars .sb .bar { width: 100%; max-width: 34px; background: var(--accent); border-radius: 4px 4px 0 0; }
+  .splits-bars .sb .lab { font-size: 9.5px; color: var(--text-muted); }
+
+  /* Strength track */
+  .balance-row { display: flex; gap: 22px; }
+  .balance-item { flex: 1; }
+  .balance-item .bl-head { display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 6px; }
+  .balance-item .bl-head .name { color: var(--text-secondary); font-weight: 600; }
+  .balance-item .bl-head .val { font-weight: 700; font-family: "Bricolage Grotesque", system-ui, sans-serif; }
+  .balance-bar-track { height: 10px; border-radius: 5px; background: var(--surface-sunken); display: flex; overflow: hidden; gap: 2px; }
+  .balance-bar-seg { height: 100%; border-radius: 3px; }
+
+  /* Update button */
+  .update-btn {
+    display: inline-flex; align-items: center; gap: 7px; font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-size: 12.5px; font-weight: 600; color: var(--text-primary); background: var(--surface-card);
+    border: 1px solid var(--border-strong); border-radius: 999px; padding: 8px 14px; cursor: pointer;
+    transition: background 0.12s, opacity 0.12s;
+  }
+  .update-btn:hover:not(:disabled) { background: var(--surface-sunken); }
+  .update-btn:disabled { cursor: default; opacity: 0.55; }
+  .update-btn .ic { font-size: 13px; line-height: 1; transition: transform 0.4s; }
+  .update-btn.spinning .ic { animation: spin 0.9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .update-status { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; text-align: right; max-width: 220px; }
+  .update-status.err { color: var(--critical); }
+  .update-status.ok { color: var(--success-text); }
+  .update-col { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+  footer.note { font-size: 11.5px; color: var(--text-muted); text-align: center; padding-top: 4px; }
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+
+<div class="wrap">
+
+  <header class="top">
+    <div>
+      <div class="eyebrow">Garmin Forerunner 265</div>
+      <h1>Panel de entrenamiento y bienestar</h1>
+    </div>
+    <div class="update-col">
+      <button class="update-btn" id="updateBtn" type="button">
+        <span class="ic">↻</span><span id="updateBtnLabel">Actualizar datos</span>
+      </button>
+      <div class="update-status" id="updateStatus">Última sincronización: 28 sep 2026</div>
+    </div>
+  </header>
+
+  <section class="tiles" id="tiles"></section>
+
+  <section class="card">
+    <div class="section-title">Lecturas de los datos</div>
+    <div class="section-sub">Generadas automáticamente a partir de tus últimos 90 días exportados de Garmin Connect</div>
+    <div class="insights" id="insights"></div>
+  </section>
+
+  <section class="card">
+    <div class="section-title">Camino al 10K</div>
+    <div class="section-sub">Tu plan de Garmin Coach: predicción de carrera y prueba de referencia</div>
+    <div class="track-grid">
+      <div>
+        <div class="chip-row" id="raceChips"></div>
+        <div class="track-note" id="raceNote"></div>
+        <div class="ref-run" id="refRun"></div>
+      </div>
+      <div class="pr-list" id="prList"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="section-title">Fuerza — apoyo, no competencia</div>
+    <div class="section-sub" id="strengthSub"></div>
+    <div class="balance-row" id="balanceRow"></div>
+    <div class="insights" id="strengthInsight" style="margin-top: 14px;"></div>
+  </section>
+
+  <section class="card">
+    <div class="section-title">Carga de entrenamiento</div>
+    <div class="section-sub">Ratio agudo:crónico (7 vs 28 días) y balance mensual por tipo de carga</div>
+    <div class="load-grid">
+      <div>
+        <div class="acwr-row">
+          <span class="big num" id="acwrBadgeVal"></span>
+          <span class="badge good" id="acwrBadge">Óptimo</span>
+        </div>
+        <div class="section-sub" style="margin-bottom:0;">Relación entre tu carga de los últimos 7 días y tu carga base de 28 días. Un valor óptimo indica bajo riesgo de sobrecarga.</div>
+        <div class="acute-chronic">
+          <div class="ac-item">
+            <div class="l">Aguda (7 d)</div>
+            <div class="v num" id="acuteVal"></div>
+            <div class="ac-bar-track"><div class="ac-bar-fill" id="acuteBar"></div></div>
+          </div>
+          <div class="ac-item">
+            <div class="l">Crónica (28 d)</div>
+            <div class="v num" id="chronicVal"></div>
+            <div class="ac-bar-track"><div class="ac-bar-fill" id="chronicBar" style="background:var(--baseline);"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="load-bars" id="loadBars"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="section-title">Tendencias diarias</div>
+    <div class="section-sub" id="trendsSub">Últimos días con datos de bienestar registrados</div>
+    <div class="charts-row" id="charts"></div>
+  </section>
+
+  <section class="card">
+    <div class="section-title">Registro de actividades</div>
+    <div class="section-sub" id="actSub"></div>
+    <div class="act-list" id="actList"></div>
+    <div class="legend" id="legend"></div>
+    <div class="zone-scale" id="zoneScale"></div>
+    <div class="zone-note" id="zoneNote"></div>
+  </section>
+
+  <footer class="note">Datos propios descargados de Garmin Connect · Forerunner 265</footer>
+</div>
+
+<script>
+const DATA = {"activities": [{"activity_id": 24502141153, "date": "2026-09-26", "name": "Arenys de Mar - Trote suave", "type": "running", "distance_km": 2.67, "duration_min": 20.8, "avg_hr": 156.0, "max_hr": 184.0, "calories": 275.0, "training_effect_aerobic": 2.799999952316284, "training_effect_anaerobic": 0.0, "vo2max": 49.0, "pace_sec_km": 468.0}, {"activity_id": 24494958614, "date": "2026-09-25", "name": "Arenys de Mar - Carrera de referencia", "type": "running", "distance_km": 1.4, "duration_min": 9.7, "avg_hr": 163.0, "max_hr": 185.0, "calories": 157.0, "training_effect_aerobic": 2.5999999046325684, "training_effect_anaerobic": 0.0, "vo2max": 50.0, "pace_sec_km": 414.0}, {"activity_id": 24480125421, "date": "2026-09-24", "name": "Mataró Pádel", "type": "paddelball", "distance_km": 2.39, "duration_min": 74.9, "avg_hr": 157.0, "max_hr": 194.0, "calories": 1058.0, "training_effect_aerobic": 4.099999904632568, "training_effect_anaerobic": 5.0, "vo2max": "", "pace_sec_km": 1880.0}, {"activity_id": 24473957524, "date": "2026-09-23", "name": "Ciclismo en sala", "type": "indoor_cycling", "distance_km": 12.5, "duration_min": 35.6, "avg_hr": 127.0, "max_hr": 150.0, "calories": 363.0, "training_effect_aerobic": 2.0, "training_effect_anaerobic": 0.0, "vo2max": "", "pace_sec_km": 171.0}, {"activity_id": 24473535649, "date": "2026-09-23", "name": "Pull Day💪", "type": "strength_training", "distance_km": 0.0, "duration_min": 100.6, "avg_hr": 113.0, "max_hr": 155.0, "calories": 678.0, "training_effect_aerobic": 1.899999976158142, "training_effect_anaerobic": 2.0999999046325684, "vo2max": "", "pace_sec_km": ""}, {"activity_id": 24460703940, "date": "2026-09-22", "name": "Ciclismo en sala", "type": "indoor_cycling", "distance_km": 3.06, "duration_min": 10.0, "avg_hr": 121.0, "max_hr": 134.0, "calories": 101.0, "training_effect_aerobic": 0.699999988079071, "training_effect_anaerobic": 0.0, "vo2max": "", "pace_sec_km": 196.0}, {"activity_id": 24460562168, "date": "2026-09-22", "name": "Fuerza", "type": "strength_training", "distance_km": 0.0, "duration_min": 89.8, "avg_hr": 121.0, "max_hr": 166.0, "calories": 706.0, "training_effect_aerobic": 2.200000047683716, "training_effect_anaerobic": 2.200000047683716, "vo2max": "", "pace_sec_km": ""}, {"activity_id": 24458398737, "date": "2026-09-22", "name": "Yoga", "type": "yoga", "distance_km": 0.0, "duration_min": 23.9, "avg_hr": 80.0, "max_hr": 108.0, "calories": 72.0, "training_effect_aerobic": 0.1000000014901161, "training_effect_anaerobic": 0.0, "vo2max": "", "pace_sec_km": ""}, {"activity_id": 24447443861, "date": "2026-09-21", "name": "Ciclismo en sala", "type": "indoor_cycling", "distance_km": 0.0, "duration_min": 20.3, "avg_hr": 162.0, "max_hr": 180.0, "calories": 331.0, "training_effect_aerobic": 3.299999952316284, "training_effect_anaerobic": 0.1000000014901161, "vo2max": "", "pace_sec_km": ""}, {"activity_id": 24447443345, "date": "2026-09-21", "name": "Fuerza", "type": "strength_training", "distance_km": 0.0, "duration_min": 50.6, "avg_hr": 107.0, "max_hr": 148.0, "calories": 332.0, "training_effect_aerobic": 1.100000023841858, "training_effect_anaerobic": 1.0, "vo2max": "", "pace_sec_km": ""}, {"activity_id": 24445426804, "date": "2026-09-21", "name": "Yoga", "type": "yoga", "distance_km": 0.0, "duration_min": 13.4, "avg_hr": 85.0, "max_hr": 109.0, "calories": 48.0, "training_effect_aerobic": 0.1000000014901161, "training_effect_anaerobic": 0.0, "vo2max": "", "pace_sec_km": ""}, {"activity_id": 24442237392, "date": "2026-09-21", "name": "Mataró Caminar", "type": "walking", "distance_km": 1.13, "duration_min": 37.0, "avg_hr": 92.0, "max_hr": 114.0, "calories": 180.0, "training_effect_aerobic": 0.3000000119209289, "training_effect_anaerobic": 0.0, "vo2max": "", "pace_sec_km": 1969.0}], "daily": [{"date": "2026-07-01", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-02", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-03", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-04", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-05", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-06", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-07", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-08", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-09", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-10", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-11", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-12", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-13", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-14", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-15", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-16", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-17", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-18", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-19", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-20", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-21", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-22", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-23", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-24", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-25", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-26", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-27", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-28", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-29", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-30", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-07-31", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-01", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-02", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-03", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-04", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-05", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-06", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-07", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-08", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-09", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-10", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-11", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-12", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-13", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-14", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-15", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-16", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-17", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-18", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-19", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-20", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-21", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-22", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-23", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-24", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-25", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-26", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-27", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-28", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-29", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-30", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-08-31", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-09-01", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-09-02", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-09-03", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-09-04", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-09-05", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-09-06", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-09-07", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-09-08", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-09-09", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-09-10", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-09-11", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-09-12", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-09-13", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-09-14", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-09-15", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": "", "steps": "", "training_readiness": "", "readiness_feedback": "", "recovery_time_hours": ""}, {"date": "2026-09-16", "sleep_score": "", "sleep_hours": 0.0, "hrv_avg": "", "resting_hr": 79.0, "steps": "", "training_readiness": "", "readiness_feedback": "UNKNOWN", "recovery_time_hours": 1.0}, {"date": "2026-09-17", "sleep_score": 55.0, "sleep_hours": 4.05, "hrv_avg": 61.0, "resting_hr": 61.0, "steps": "", "training_readiness": "", "readiness_feedback": "UNKNOWN", "recovery_time_hours": 73.0}, {"date": "2026-09-18", "sleep_score": 83.0, "sleep_hours": 7.28, "hrv_avg": 77.0, "resting_hr": 54.0, "steps": "", "training_readiness": "", "readiness_feedback": "UNKNOWN", "recovery_time_hours": 1.0}, {"date": "2026-09-19", "sleep_score": 79.0, "sleep_hours": 7.02, "hrv_avg": 86.0, "resting_hr": 53.0, "steps": "", "training_readiness": "", "readiness_feedback": "UNKNOWN", "recovery_time_hours": 1.0}, {"date": "2026-09-20", "sleep_score": 85.0, "sleep_hours": 7.5, "hrv_avg": 79.0, "resting_hr": 54.0, "steps": "", "training_readiness": 100.0, "readiness_feedback": "PRIME_NAP", "recovery_time_hours": 1.0}, {"date": "2026-09-21", "sleep_score": 76.0, "sleep_hours": 6.98, "hrv_avg": 78.0, "resting_hr": 54.0, "steps": "", "training_readiness": 59.0, "readiness_feedback": "MOD_RT_MOD_SS_MOD", "recovery_time_hours": 1454.0}, {"date": "2026-09-22", "sleep_score": 81.0, "sleep_hours": 6.7, "hrv_avg": 73.0, "resting_hr": 56.0, "steps": "", "training_readiness": 59.0, "readiness_feedback": "MOD_RT_MOD_SS_GOOD", "recovery_time_hours": 1588.0}, {"date": "2026-09-23", "sleep_score": 72.0, "sleep_hours": 6.2, "hrv_avg": 62.0, "resting_hr": 57.0, "steps": "", "training_readiness": 53.0, "readiness_feedback": "MOD_RT_LOW_SS_MOD", "recovery_time_hours": 1129.0}, {"date": "2026-09-24", "sleep_score": 78.0, "sleep_hours": 7.65, "hrv_avg": 65.0, "resting_hr": 59.0, "steps": "", "training_readiness": 7.0, "readiness_feedback": "POOR_RT_HIGH_SS_GOOD_OR_MOD", "recovery_time_hours": 5760.0}, {"date": "2026-09-25", "sleep_score": 86.0, "sleep_hours": 7.11, "hrv_avg": 74.0, "resting_hr": 57.0, "steps": "", "training_readiness": 11.0, "readiness_feedback": "POOR_NAP", "recovery_time_hours": 4027.0}, {"date": "2026-09-26", "sleep_score": 75.0, "sleep_hours": 6.3, "hrv_avg": 68.0, "resting_hr": 59.0, "steps": "", "training_readiness": 25.0, "readiness_feedback": "LOW_RT_HIGH_SS_GOOD_OR_MOD", "recovery_time_hours": 2811.0}, {"date": "2026-09-27", "sleep_score": 79.0, "sleep_hours": 8.83, "hrv_avg": 58.0, "resting_hr": 60.0, "steps": "", "training_readiness": 50.0, "readiness_feedback": "MODERATE_NAP", "recovery_time_hours": 1201.0}, {"date": "2026-09-28", "sleep_score": 83.0, "sleep_hours": 7.03, "hrv_avg": 75.0, "resting_hr": 55.0, "steps": "", "training_readiness": 75.0, "readiness_feedback": "HIGH_RT_HIGHEST_SS_AVAILABLE", "recovery_time_hours": 40.0}], "vo2max": {"calendarDate": "2026-09-26", "vo2MaxPreciseValue": 49.8, "vo2MaxValue": 50.0, "fitnessAge": null, "fitnessAgeDescription": null, "maxMetCategory": 0}, "loadBalance": {"calendarDate": "2026-09-28", "deviceId": 3530284826, "monthlyLoadAerobicLow": 92.536545, "monthlyLoadAerobicHigh": 338.79877, "monthlyLoadAnaerobic": 328.643, "monthlyLoadAerobicLowTargetMin": 224, "monthlyLoadAerobicLowTargetMax": 379, "monthlyLoadAerobicHighTargetMin": 210, "monthlyLoadAerobicHighTargetMax": 366, "monthlyLoadAnaerobicTargetMin": 62, "monthlyLoadAnaerobicTargetMax": 155, "trainingBalanceFeedbackPhrase": "AEROBIC_LOW_SHORTAGE", "primaryTrainingDevice": true}, "trainingStatus": {"calendarDate": "2026-09-28", "sinceDate": "2026-09-21", "weeklyTrainingLoad": null, "trainingStatus": 0, "timestamp": 1790572224000, "deviceId": 3530284826, "loadTunnelMin": null, "loadTunnelMax": null, "loadLevelTrend": null, "sport": null, "subSport": null, "fitnessTrendSport": "NONE", "fitnessTrend": 0, "trainingStatusFeedbackPhrase": "NO_STATUS_2", "trainingPaused": false, "acuteTrainingLoadDTO": {"acwrPercent": 52, "acwrStatus": "OPTIMAL", "acwrStatusFeedback": "FEEDBACK_2", "dailyTrainingLoadAcute": 534, "maxTrainingLoadChronic": 654.0, "minTrainingLoadChronic": 348.8, "dailyTrainingLoadChronic": 436, "dailyAcuteChronicWorkloadRatio": null}, "primaryTrainingDevice": true}, "racePredictions": [{"userId": 151172415, "fromCalendarDate": "2026-06-30", "toCalendarDate": "2026-09-28", "calendarDate": "2026-09-27", "time5K": 1417, "time10K": 3069, "timeHalfMarathon": 7011, "timeMarathon": 15886}, {"userId": 151172415, "fromCalendarDate": "2026-06-30", "toCalendarDate": "2026-09-28", "calendarDate": "2026-09-28", "time5K": 1417, "time10K": 3069, "timeHalfMarathon": 7011, "timeMarathon": 15886}], "personalRecords": {"best_1k_sec": 297.9809875488281, "best_1k_date": "2026-09-25T17:23:01.0", "longest_run_m": 2670.31005859375, "longest_run_date": "2026-09-26T10:39:56.0"}, "bodyBattery": [{"date": "2026-09-15", "charged": null, "drained": null, "end_level": null}, {"date": "2026-09-16", "charged": 1, "drained": 11, "end_level": 68}, {"date": "2026-09-17", "charged": 46, "drained": 70, "end_level": 36}, {"date": "2026-09-18", "charged": 76, "drained": 92, "end_level": 28}, {"date": "2026-09-19", "charged": 76, "drained": 79, "end_level": 25}, {"date": "2026-09-20", "charged": 84, "drained": 73, "end_level": 34}, {"date": "2026-09-21", "charged": 64, "drained": 89, "end_level": 11}, {"date": "2026-09-22", "charged": 72, "drained": 76, "end_level": 7}, {"date": "2026-09-23", "charged": 57, "drained": 59, "end_level": 5}, {"date": "2026-09-24", "charged": 69, "drained": 67, "end_level": 7}, {"date": "2026-09-25", "charged": 80, "drained": 67, "end_level": 20}, {"date": "2026-09-26", "charged": 67, "drained": 82, "end_level": 5}, {"date": "2026-09-27", "charged": 70, "drained": 47, "end_level": 28}, {"date": "2026-09-28", "charged": 73, "drained": 33, "end_level": 68}], "runSplits": {"24502141153": {"date": "2026-09-26", "name": "Arenys de Mar - Trote suave", "active_laps": [{"distance_m": 1000, "pace_sec_km": 393, "avg_hr": 156.0}, {"distance_m": 522, "pace_sec_km": 396, "avg_hr": 171.0}, {"distance_m": 763, "pace_sec_km": 400, "avg_hr": 176.0}]}, "24494958614": {"date": "2026-09-25", "name": "Arenys de Mar - Carrera de referencia", "active_laps": [{"distance_m": 1000, "pace_sec_km": 298, "avg_hr": 177.0}]}}};
+
+const CAT_META = {
+  running:          { label: 'Correr',    color: 'var(--cat-running)',  icon: '🏃' },
+  indoor_cycling:   { label: 'Ciclismo',  color: 'var(--cat-cycling)',  icon: '🚴' },
+  strength_training:{ label: 'Fuerza',    color: 'var(--cat-strength)', icon: '🏋️' },
+  yoga:             { label: 'Yoga',      color: 'var(--cat-yoga)',     icon: '🧘' },
+  paddelball:       { label: 'Pádel',     color: 'var(--cat-padel)',    icon: '🎾' },
+  walking:          { label: 'Caminar',   color: 'var(--cat-walking)',  icon: '🚶' },
+};
+
+function fmt(n, d) { return (n === '' || n === null || n === undefined || Number.isNaN(Number(n))) ? '—' : Number(n).toFixed(d === undefined ? 0 : d); }
+function fmtClock(totalSec) {
+  if (totalSec === null || totalSec === undefined || Number.isNaN(Number(totalSec))) return '—';
+  const s = Math.round(totalSec);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  return `${m}:${String(sec).padStart(2,'0')}`;
+}
+function fmtPace(secPerKm) {
+  if (!secPerKm) return '—';
+  const m = Math.floor(secPerKm / 60), s = Math.round(secPerKm % 60);
+  return `${m}:${String(s).padStart(2,'0')}/km`;
+}
+function fmtDateShort(iso) {
+  if (!iso) return '';
+  const d = iso.slice(0,10);
+  return `${d.slice(8,10)}/${d.slice(5,7)}`;
+}
+
+// ---------- Shared derived data ----------
+const dailyWithData = DATA.daily.filter(d => d.sleep_score !== '');
+const last = dailyWithData[dailyWithData.length - 1] || {};
+const readinessRows = DATA.daily.filter(d => d.training_readiness !== '' && d.training_readiness !== undefined).slice().reverse();
+const lastReadiness = readinessRows[readinessRows.length - 1] || {};
+const readinessLevel = (score) => score === '' || score === undefined ? '' : (score >= 70 ? 'Alto' : score >= 40 ? 'Moderado' : 'Bajo');
+const lastRace = DATA.racePredictions[DATA.racePredictions.length - 1] || {};
+const runActivities = DATA.activities.filter(a => a.type === 'running');
+const strengthActivities = DATA.activities.filter(a => a.type === 'strength_training');
+const splitsEntries = Object.values(DATA.runSplits).sort((a,b) => a.date < b.date ? 1 : -1);
+const refEntry = splitsEntries.find(e => /referencia/i.test(e.name)) || splitsEntries[0];
+const buildEntry = splitsEntries.find(e => e !== refEntry && e.active_laps.length > 1);
+
+function fmtRecoveryMinutes(min) {
+  if (min === '' || min === undefined || min === null) return '—';
+  const m = Number(min);
+  if (m <= 5) return 'Listo ahora';
+  if (m < 60) return `${Math.round(m)} min`;
+  const h = Math.floor(m / 60), rem = Math.round(m % 60);
+  return rem > 0 ? `${h}h ${rem}min` : `${h}h`;
+}
+
+// ---------- Stat tiles ----------
+const tiles = [
+  { label: 'Training Readiness', value: fmt(lastReadiness.training_readiness, 0), unit: readinessLevel(lastReadiness.training_readiness), foot: 'Sueño + HRV + carga combinados' },
+  { label: '10K estimado', value: fmtClock(lastRace.time10K), unit: '', foot: DATA.racePredictions.length ? 'Predicción de Garmin, hoy' : 'Aún sin datos suficientes' },
+  { label: 'Recuperación', value: fmtRecoveryMinutes(lastReadiness.recovery_time_hours), unit: '', foot: 'Hasta la próxima sesión fuerte' },
+  { label: 'Sueño anoche', value: fmt(last.sleep_score, 0), unit: '/ 100', foot: fmt(last.sleep_hours,1) + ' h de sueño' },
+];
+document.getElementById('tiles').innerHTML = tiles.map(t => `
+  <div class="tile">
+    <div class="label">${t.label}</div>
+    <div class="value num">${t.value}<span class="unit">${t.unit}</span></div>
+    <div class="foot">${t.foot}</div>
+  </div>`).join('');
+
+// ---------- Insights ----------
+const lb = DATA.loadBalance;
+const runCount = runActivities.length;
+const totalRunKm = runActivities.reduce((s,a)=>s+Number(a.distance_km||0),0);
+
+// Detect strength sessions same-day or day-before a quality run (TE aerobic >= 2.5)
+const qualityRuns = runActivities.filter(a => Number(a.training_effect_aerobic || 0) >= 2.5);
+const dateMinus1 = (iso) => { const d = new Date(iso); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); };
+const proximityHit = qualityRuns.find(run =>
+  strengthActivities.some(s => s.date === run.date || s.date === dateMinus1(run.date))
+);
+
+const insights = [
+  {
+    tone: 'warning',
+    html: `Tu <strong>carga aeróbica de baja intensidad</strong> (${fmt(lb.monthlyLoadAerobicLow,0)}) está por debajo del rango objetivo de Garmin (${lb.monthlyLoadAerobicLowTargetMin}–${lb.monthlyLoadAerobicLowTargetMax}). Con ${runCount} carreras (${fmt(totalRunKm,1)} km) frente a más sesiones de fuerza y yoga, añadir rodajes suaves en Z2 ayudaría a construir la base del 10K.`
+  },
+  {
+    tone: lastReadiness.training_readiness >= 70 ? 'good' : lastReadiness.training_readiness >= 40 ? 'neutral' : 'warning',
+    html: lastReadiness.training_readiness !== undefined && lastReadiness.training_readiness !== ''
+      ? (() => {
+          const recovMin = Number(lastReadiness.recovery_time_hours);
+          const recovPhrase = recovMin <= 5 ? 'ya sin tiempo de recuperación pendiente' : `con ${fmtRecoveryMinutes(recovMin).toLowerCase()} de recuperación estimada todavía`;
+          const advice = lastReadiness.training_readiness >= 70 ? 'buen día para una sesión de calidad.' : lastReadiness.training_readiness >= 40 ? 'un día para intensidad moderada, sin forzar.' : 'mejor priorizar descanso o algo suave hoy.';
+          return `Tu <strong>Training Readiness de hoy es ${fmt(lastReadiness.training_readiness,0)} (${readinessLevel(lastReadiness.training_readiness)})</strong>, ${recovPhrase} — ${advice}`;
+        })()
+      : `Aún no hay suficiente historial para calcular tu Training Readiness diario — debería aparecer en los próximos días de uso.`
+  },
+  {
+    tone: proximityHit ? 'warning' : 'good',
+    html: proximityHit
+      ? `Detecté fuerza justo antes de una carrera de calidad: <strong>${proximityHit.name}</strong> (${fmtDateShort(proximityHit.date)}) tuvo una sesión de fuerza el mismo día o el anterior — si notas piernas cargadas en las carreras de Coach, prueba a separarlas al menos un día.`
+      : `Tus sesiones de fuerza no coinciden con tus carreras de calidad de Coach en este periodo — buen espaciado para llegar fresco a las sesiones importantes.`
+  },
+  {
+    tone: 'neutral',
+    html: DATA.racePredictions.length
+      ? `Tu predicción de 10K (<strong>${fmtClock(lastRace.time10K)}</strong>) se basa en tu VO2max y tu última prueba de referencia (${fmtDateShort(refEntry?.date || '')}). Es un único dato por ahora — se irá afinando con cada nueva prueba que te ponga Coach.`
+      : `Todavía no hay predicción de carrera — aparecerá en cuanto acumules algunas sesiones más con el reloj.`
+  },
+];
+document.getElementById('insights').innerHTML = insights.map(i => `
+  <div class="insight"><div class="dot ${i.tone}"></div><p>${i.html}</p></div>`).join('');
+
+// ---------- Camino al 10K ----------
+const raceLabels = [
+  { key: 'time5K', label: '5K' },
+  { key: 'time10K', label: '10K' },
+  { key: 'timeHalfMarathon', label: 'Media' },
+  { key: 'timeMarathon', label: 'Maratón' },
+];
+document.getElementById('raceChips').innerHTML = DATA.racePredictions.length
+  ? raceLabels.map(r => `
+    <div class="chip">
+      <div class="chip-label">${r.label}</div>
+      <div class="chip-val num">${fmtClock(lastRace[r.key])}</div>
+    </div>`).join('')
+  : `<div class="track-note">Garmin todavía no ha generado una predicción — necesita más carreras registradas.</div>`;
+document.getElementById('raceNote').textContent = DATA.racePredictions.length
+  ? `Basado en ${DATA.racePredictions.length} día(s) de historial y tu VO2max (${fmt(DATA.vo2max.vo2MaxValue,0)}) — se refinará con cada carrera nueva.`
+  : '';
+
+// Reference run (Coach benchmark) + build-up laps from the easy run
+let refHtml = '';
+if (refEntry && refEntry.active_laps.length) {
+  const lap = refEntry.active_laps[0];
+  refHtml += `
+    <div class="rr-head">
+      <span class="rr-title">Última prueba de referencia (Coach)</span>
+      <span class="rr-date">${fmtDateShort(refEntry.date)}</span>
+    </div>
+    <div class="rr-stats">
+      <div><div class="v num">${fmtPace(lap.pace_sec_km)}</div><div class="l">Ritmo 1K</div></div>
+      <div><div class="v num">${fmt(lap.avg_hr,0)}</div><div class="l">FC media (ppm)</div></div>
+    </div>`;
+}
+if (buildEntry && buildEntry.active_laps.length > 1) {
+  const maxPace = Math.max(...buildEntry.active_laps.map(l => l.pace_sec_km));
+  refHtml += `
+    <div class="track-note" style="margin-top:14px;">Progresión de tramos — ${buildEntry.name} (${fmtDateShort(buildEntry.date)})</div>
+    <div class="splits-bars">
+      ${buildEntry.active_laps.map((l,i) => `
+        <div class="sb">
+          <div class="bar" style="height:${Math.max(12, l.pace_sec_km / maxPace * 56)}px;"></div>
+          <div class="lab num">${fmtPace(l.pace_sec_km)}</div>
+        </div>`).join('')}
+    </div>`;
+}
+document.getElementById('refRun').innerHTML = refHtml || '<div class="track-note">Aún no hay carreras con splits registrados.</div>';
+
+// Personal records
+const pr = DATA.personalRecords;
+document.getElementById('prList').innerHTML = `
+  <div class="pr-item">
+    <div>
+      <div class="pr-label">Mejor 1K</div>
+      <span class="pr-date">${pr.best_1k_date ? fmtDateShort(pr.best_1k_date) : '—'}</span>
+    </div>
+    <div class="pr-val num">${fmtPace(pr.best_1k_sec)}</div>
+  </div>
+  <div class="pr-item">
+    <div>
+      <div class="pr-label">Carrera más larga</div>
+      <span class="pr-date">${pr.longest_run_date ? fmtDateShort(pr.longest_run_date) : '—'}</span>
+    </div>
+    <div class="pr-val num">${fmt((pr.longest_run_m||0)/1000, 2)} km</div>
+  </div>
+  <div class="track-note">Marcas cortas por ahora — el reloj lleva poco más de una semana registrando. Se irán superando a medida que avances en el plan.</div>`;
+
+// ---------- Fuerza — apoyo, no competencia ----------
+const typeCounts = {};
+DATA.activities.forEach(a => { typeCounts[a.type] = (typeCounts[a.type]||0) + 1; });
+const catColor = { running: 'var(--cat-running)', strength_training: 'var(--cat-strength)', indoor_cycling: 'var(--cat-cycling)', yoga: 'var(--cat-yoga)', paddelball: 'var(--cat-padel)', walking: 'var(--cat-walking)' };
+const catLabel = { running: 'Carrera', strength_training: 'Fuerza', indoor_cycling: 'Ciclismo', yoga: 'Yoga', paddelball: 'Pádel', walking: 'Caminar' };
+const totalActs = DATA.activities.length;
+
+document.getElementById('strengthSub').textContent =
+  `${typeCounts.strength_training || 0} sesiones de fuerza y ${runCount} de carrera en los últimos ${totalActs > 0 ? Math.ceil((new Date(DATA.activities[0].date) - new Date(DATA.activities[DATA.activities.length-1].date))/86400000)+1 : 0} días`;
+
+document.getElementById('balanceRow').innerHTML = `
+  <div class="balance-item" style="flex:1 1 100%;">
+    <div class="bl-head"><span class="name">Reparto de sesiones</span></div>
+    <div class="balance-bar-track">
+      ${Object.entries(typeCounts).map(([t,c]) => `<div class="balance-bar-seg" style="width:${c/totalActs*100}%; background:${catColor[t]||'var(--text-muted)'};" title="${catLabel[t]||t}: ${c}"></div>`).join('')}
+    </div>
+    <div class="legend" style="margin-top:10px;">
+      ${Object.entries(typeCounts).map(([t,c]) => `<div class="li"><span class="sw" style="background:${catColor[t]||'var(--text-muted)'}"></span>${catLabel[t]||t} (${c})</div>`).join('')}
+    </div>
+  </div>`;
+
+document.getElementById('strengthInsight').innerHTML = `
+  <div class="insight"><div class="dot ${proximityHit ? 'warning' : 'good'}"></div><p>${
+    proximityHit
+      ? `Deja al menos un día entre <strong>fuerza</strong> y tus carreras de calidad para llegar con las piernas frescas.`
+      : `Buen espaciado entre fuerza y carrera esta semana — sigue así de cara a las sesiones de calidad de Coach.`
+  }</p></div>`;
+
+// ---------- Training load ----------
+const acute = DATA.trainingStatus.acuteTrainingLoadDTO;
+document.getElementById('acwrBadgeVal').textContent = (acute.dailyTrainingLoadAcute / acute.dailyTrainingLoadChronic).toFixed(2);
+document.getElementById('acwrBadge').textContent = acute.acwrStatus === 'OPTIMAL' ? 'Óptimo' : acute.acwrStatus;
+document.getElementById('acuteVal').textContent = acute.dailyTrainingLoadAcute;
+document.getElementById('chronicVal').textContent = acute.dailyTrainingLoadChronic;
+const acMax = Math.max(acute.dailyTrainingLoadAcute, acute.dailyTrainingLoadChronic, acute.maxTrainingLoadChronic);
+document.getElementById('acuteBar').style.width = (acute.dailyTrainingLoadAcute / acMax * 100) + '%';
+document.getElementById('chronicBar').style.width = (acute.dailyTrainingLoadChronic / acMax * 100) + '%';
+
+const loadRows = [
+  { name: 'Aeróbico bajo', val: lb.monthlyLoadAerobicLow, min: lb.monthlyLoadAerobicLowTargetMin, max: lb.monthlyLoadAerobicLowTargetMax },
+  { name: 'Aeróbico alto', val: lb.monthlyLoadAerobicHigh, min: lb.monthlyLoadAerobicHighTargetMin, max: lb.monthlyLoadAerobicHighTargetMax },
+  { name: 'Anaeróbico',    val: lb.monthlyLoadAnaerobic,    min: lb.monthlyLoadAnaerobicTargetMin,    max: lb.monthlyLoadAnaerobicTargetMax },
+];
+const rowMax = Math.max(...loadRows.map(r => Math.max(r.val, r.max))) * 1.1;
+document.getElementById('loadBars').innerHTML = loadRows.map(r => {
+  const short = r.val < r.min;
+  return `
+  <div class="load-bar-row">
+    <div class="lb-head"><span class="name">${r.name}</span><span class="val num">${fmt(r.val,0)}</span></div>
+    <div class="lb-track">
+      <div class="lb-target" style="left:${r.min/rowMax*100}%; width:${(r.max-r.min)/rowMax*100}%;"></div>
+      <div class="lb-fill ${short ? 'short' : ''}" style="width:${r.val/rowMax*100}%;"></div>
+    </div>
+    <div class="lb-caption">Objetivo mensual: ${r.min}–${r.max}${short ? ' · por debajo del objetivo' : ''}</div>
+  </div>`;
+}).join('');
+
+// ---------- Line charts ----------
+function lineChart(title, series, unit, decimals) {
+  const w = 280, h = 120, padL = 8, padR = 8, padT = 14, padB = 18;
+  const vals = series.map(d => d.v);
+  const vMin = Math.min(...vals), vMax = Math.max(...vals);
+  const range = (vMax - vMin) || 1;
+  const x = i => padL + (i / (series.length - 1)) * (w - padL - padR);
+  const y = v => padT + (1 - (v - vMin) / range) * (h - padT - padB);
+  const pts = series.map((d,i) => [x(i), y(d.v)]);
+  const linePath = pts.map((p,i) => (i===0?'M':'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+  const areaPath = linePath + ` L${pts[pts.length-1][0].toFixed(1)},${h-padB} L${pts[0][0].toFixed(1)},${h-padB} Z`;
+  const gridY = [vMin, (vMin+vMax)/2, vMax];
+
+  const id = 'c' + Math.random().toString(36).slice(2,8);
+  const lastPt = pts[pts.length-1];
+
+  const html = `
+  <div class="chart-box">
+    <div class="chart-head">
+      <span class="chart-title">${title}</span>
+      <span class="chart-last num">${fmt(series[series.length-1].v, decimals)}${unit}</span>
+    </div>
+    <div class="chart-wrap">
+      <svg viewBox="0 0 ${w} ${h}" id="${id}">
+        <g class="chart-grid">
+          ${gridY.map(gv => `<line x1="${padL}" x2="${w-padR}" y1="${y(gv).toFixed(1)}" y2="${y(gv).toFixed(1)}"/>`).join('')}
+        </g>
+        <path class="chart-area" d="${areaPath}"/>
+        <path class="chart-line" d="${linePath}"/>
+        <circle class="chart-dot-end" cx="${lastPt[0].toFixed(1)}" cy="${lastPt[1].toFixed(1)}" r="4"/>
+        ${gridY.map(gv => `<text class="chart-axis-label" x="${padL}" y="${(y(gv)-3).toFixed(1)}">${fmt(gv,decimals)}</text>`).join('')}
+        <line class="chart-hover-line" id="${id}-hl" x1="0" x2="0" y1="${padT}" y2="${h-padB}"/>
+        <circle class="chart-hover-dot" id="${id}-hd" r="4.5"/>
+      </svg>
+      <div class="chart-tip" id="${id}-tip"></div>
+    </div>
+  </div>`;
+
+  requestAnimationFrame(() => {
+    const svg = document.getElementById(id);
+    const hl = document.getElementById(id+'-hl');
+    const hd = document.getElementById(id+'-hd');
+    const tip = document.getElementById(id+'-tip');
+    svg.addEventListener('pointermove', e => {
+      const rect = svg.getBoundingClientRect();
+      const px = (e.clientX - rect.left) / rect.width * w;
+      let idx = Math.round((px - padL) / (w - padL - padR) * (series.length - 1));
+      idx = Math.max(0, Math.min(series.length - 1, idx));
+      const [cx, cy] = pts[idx];
+      hl.setAttribute('x1', cx); hl.setAttribute('x2', cx); hl.style.opacity = 1;
+      hd.setAttribute('cx', cx); hd.setAttribute('cy', cy); hd.style.opacity = 1;
+      const d = series[idx];
+      tip.textContent = `${d.date.slice(8,10)}/${d.date.slice(5,7)} · ${fmt(d.v, decimals)}${unit}`;
+      tip.style.left = (cx / w * 100) + '%';
+      tip.style.top = (cy / h * 100) + '%';
+      tip.style.opacity = 1;
+    });
+    svg.addEventListener('pointerleave', () => {
+      hl.style.opacity = 0; hd.style.opacity = 0; tip.style.opacity = 0;
+    });
+  });
+
+  return html;
+}
+
+const seriesDaily = dailyWithData.map(d => d);
+const bbSeries = DATA.bodyBattery.filter(d => d.end_level !== null && d.end_level !== undefined);
+document.getElementById('trendsSub').textContent =
+  `Últimos ${dailyWithData.length} días con datos de bienestar registrados (${fmtDateShort(dailyWithData[0]?.date)}–${fmtDateShort(dailyWithData[dailyWithData.length-1]?.date)})`;
+document.getElementById('charts').innerHTML =
+  lineChart('Horas de sueño', seriesDaily.map(d => ({date:d.date, v:Number(d.sleep_hours)})), ' h', 1) +
+  lineChart('HRV nocturno', seriesDaily.map(d => ({date:d.date, v:Number(d.hrv_avg)})), ' ms', 0) +
+  (bbSeries.length > 1 ? lineChart('Body Battery (fin del día)', bbSeries.map(d => ({date:d.date, v:Number(d.end_level)})), '%', 0) : '') +
+  (readinessRows.length > 1 ? lineChart('Training Readiness', readinessRows.map(d => ({date:d.date, v:Number(d.training_readiness)})), '', 0) : '');
+
+// ---------- HR zones (estimated from avg HR, % of max HR) ----------
+const MAX_HR = Math.max(...DATA.activities.map(a => Number(a.max_hr) || 0));
+const ZONE_PCT = [0.5, 0.6, 0.7, 0.8, 0.9]; // lower bound of Z1..Z5
+const ZONE_BOUNDS = ZONE_PCT.map(p => Math.round(p * MAX_HR));
+const ZONE_NAMES = ['Muy suave', 'Recuperación', 'Base aeróbica', 'Tempo', 'Umbral', 'Máximo'];
+function hrZone(hr) {
+  if (!hr) return null;
+  let z = 0;
+  ZONE_BOUNDS.forEach((b, i) => { if (hr >= b) z = i + 1; });
+  return z;
+}
+function zoneBadge(z) {
+  if (z === null) return '<span class="zone z0">—</span>';
+  return `<span class="zone z${z}" title="${ZONE_NAMES[z]}">${z === 0 ? '&lt;Z1' : 'Z' + z}</span>`;
+}
+
+// ---------- Activity list ----------
+document.getElementById('actSub').textContent = `${DATA.activities.length} actividades registradas`;
+document.getElementById('actList').innerHTML = DATA.activities.map(a => {
+  const meta = CAT_META[a.type] || { label: a.type, color: 'var(--text-muted)', icon: '•' };
+  const d = a.date.slice(8,10) + '/' + a.date.slice(5,7);
+  const dist = a.distance_km > 0 ? fmt(a.distance_km,2) + ' km' : '';
+  return `
+  <div class="act-row">
+    <div class="act-pill" style="background:color-mix(in srgb, ${meta.color} 18%, transparent);">${meta.icon}</div>
+    <div class="act-main">
+      <div class="name">${a.name}</div>
+      <div class="sub">${d} · ${meta.label}${dist ? ' · ' + dist : ''}</div>
+    </div>
+    ${zoneBadge(hrZone(Number(a.avg_hr)))}
+    <div class="act-stats">
+      <div class="s"><div class="v num">${fmt(a.duration_min,0)}</div><div class="l">min</div></div>
+      <div class="s"><div class="v num">${a.avg_hr ? fmt(a.avg_hr,0) : '—'}</div><div class="l">ppm</div></div>
+      <div class="s"><div class="v num">${fmt(a.training_effect_aerobic,1)}</div><div class="l">TE aer.</div></div>
+    </div>
+  </div>`;
+}).join('');
+
+const usedTypes = [...new Set(DATA.activities.map(a => a.type))];
+document.getElementById('legend').innerHTML = usedTypes.map(t => {
+  const meta = CAT_META[t] || { label: t, color: 'var(--text-muted)' };
+  return `<div class="li"><span class="sw" style="background:${meta.color}"></span>${meta.label}</div>`;
+}).join('');
+
+document.getElementById('zoneScale').innerHTML = [1,2,3,4,5].map(z => {
+  const lo = ZONE_BOUNDS[z-1], hi = z < 5 ? ZONE_BOUNDS[z] - 1 : MAX_HR;
+  return `<span style="display:inline-flex;align-items:center;gap:6px;">${zoneBadge(z)}<span class="num">${lo}–${hi}</span></span>`;
+}).join('');
+document.getElementById('zoneNote').textContent =
+  `Zona estimada con la FC media de cada actividad sobre tu FC máxima registrada (${MAX_HR} ppm), con las zonas por defecto de Garmin (% de FC máx.). Una sesión con series puede tener media en Z3 aunque haya tramos en Z4–Z5.`;
+
+// ---------- Update button (sends a request to Claude via comments) ----------
+(function () {
+  const btn = document.getElementById('updateBtn');
+  const label = document.getElementById('updateBtnLabel');
+  const status = document.getElementById('updateStatus');
+  const REQUEST_TEXT = 'Actualiza el panel del Forerunner 265: vuelve a ejecutar fetch_garmin_data.py en el proyecto garmin-data, regenera dashboard.html con los datos nuevos (conservando el resto de secciones existentes) y republica este mismo artifact.';
+
+  function setStatus(text, cls) {
+    status.textContent = text;
+    status.className = 'update-status' + (cls ? ' ' + cls : '');
+  }
+
+  async function init() {
+    const comments = await (window.claude ? window.claude.use('comments') : null);
+    if (!comments) {
+      btn.disabled = true;
+      setStatus('Botón no disponible en esta vista.');
+      return;
+    }
+
+    let canSend = 'off';
+    try { canSend = await comments.canSendToClaude(); } catch (e) { canSend = 'off'; }
+    if (canSend !== 'available') {
+      const reasons = {
+        writers_only: 'Solo el propietario del panel puede pedir la actualización.',
+        no_session: 'No hay ninguna sesión de Claude Code abierta ahora mismo para atenderlo.',
+        off: 'El envío a Claude no está disponible en esta vista.',
+      };
+      btn.disabled = true;
+      setStatus(reasons[canSend] || 'No disponible ahora mismo.');
+      return;
+    }
+
+    btn.disabled = false;
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.classList.add('spinning');
+      label.textContent = 'Enviando…';
+      setStatus('Pidiendo a Claude que actualice los datos…');
+      try {
+        const anchor = await comments.anchorFor(btn);
+        await comments.sendToClaude({ anchor, text: REQUEST_TEXT });
+        label.textContent = 'Solicitud enviada';
+        setStatus('Claude está actualizando el panel — tardará uno o dos minutos y esta página se republicará sola.', 'ok');
+      } catch (err) {
+        const code = err && err.code;
+        const msgs = {
+          consent_required: 'Debes aceptar el permiso de comentarios (vuelve a pulsar el botón).',
+          forbidden: 'No tienes permiso para pedir actualizaciones desde aquí.',
+          claude_unavailable: 'No se pudo avisar a Claude ahora mismo. Inténtalo de nuevo en un momento.',
+          rate_limited: 'Has pedido varias actualizaciones seguidas — espera un poco.',
+        };
+        label.textContent = 'Actualizar datos';
+        setStatus(msgs[code] || 'No se pudo enviar la solicitud.', 'err');
+        btn.classList.remove('spinning');
+        btn.disabled = false;
+        return;
+      }
+      btn.classList.remove('spinning');
+      setTimeout(() => {
+        label.textContent = 'Actualizar datos';
+        btn.disabled = false;
+      }, 15000);
+    });
+  }
+
+  init();
+})();
+</script>

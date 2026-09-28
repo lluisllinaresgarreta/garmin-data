@@ -1,0 +1,7 @@
+.env
+data/
+__pycache__/
+*.pyc
+.garminconnect/
+combined_ca_bundle.pem
+scratch/

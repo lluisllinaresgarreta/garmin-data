@@ -90,6 +90,7 @@ def main():
             "avg_hr": match.get("avg_hr") if match else None,
             "distance_km": match.get("distance_km") if match else None,
             "duration_min": match.get("duration_min") if match else None,
+            "detail": w.get("detail") or None,
         })
 
     splits_raw = json.load(open(DATA_DIR / "run_splits.json", encoding="utf-8"))

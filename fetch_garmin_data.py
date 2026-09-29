@@ -125,6 +125,39 @@ def _add_months(year: int, month: int, offset: int) -> tuple[int, int]:
     return total // 12, total % 12 + 1
 
 
+def _step_summary(step: dict) -> dict:
+    end_cond = (step.get("endCondition") or {}).get("conditionTypeKey")
+    target_key = (step.get("targetType") or {}).get("workoutTargetTypeKey")
+    return {
+        "type": (step.get("stepType") or {}).get("stepTypeKey"),
+        "description": step.get("description"),
+        "end_condition": end_cond,
+        "end_value": step.get("endConditionValue"),
+        "target_type": target_key if target_key and target_key != "no.target" else None,
+        "target_low": step.get("targetValueOne"),
+        "target_high": step.get("targetValueTwo"),
+        "target_unit": step.get("targetValueUnit"),
+        "zone_number": step.get("zoneNumber"),
+    }
+
+
+def fetch_workout_detail(client: Garmin, workout_id) -> dict:
+    try:
+        w = client.get_workout_by_id(workout_id)
+    except Exception:
+        return {}
+    steps = []
+    for seg in w.get("workoutSegments", []):
+        for step in seg.get("workoutSteps", []):
+            steps.append(_step_summary(step))
+    return {
+        "description": w.get("description"),
+        "estimated_duration_sec": w.get("estimatedDurationInSecs"),
+        "estimated_distance_m": w.get("estimatedDistanceInMeters"),
+        "steps": steps,
+    }
+
+
 def fetch_scheduled_workouts(client: Garmin) -> list:
     """Garmin Coach calendar: previous, current and next month, deduped by id."""
     today = date.today()
@@ -145,7 +178,11 @@ def fetch_scheduled_workouts(client: Garmin) -> list:
                     "workout_id": item.get("workoutId"),
                     "atp_plan_id": item.get("atpPlanId"),
                 }
-    return sorted(items_by_id.values(), key=lambda x: x["date"] or "")
+    items = sorted(items_by_id.values(), key=lambda x: x["date"] or "")
+    for item in items:
+        if item.get("workout_id"):
+            item["detail"] = fetch_workout_detail(client, item["workout_id"])
+    return items
 
 
 def fetch_run_splits(client: Garmin, activities_df: pd.DataFrame) -> dict:

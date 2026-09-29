@@ -318,10 +318,10 @@
       <h1>Panel de entrenamiento y bienestar</h1>
     </div>
     <div class="update-col">
-      <button class="update-btn" id="updateBtn" type="button">
-        <span class="ic">↻</span><span id="updateBtnLabel">Actualizar datos</span>
-      </button>
-      <div class="update-status" id="updateStatus">Última sincronización: 28 sep 2026</div>
+      <a class="update-btn" href="https://claude.ai/code/routines/trig_01FXHmaxwn1fU8Tz8swPqj2X" target="_blank" rel="noopener">
+        <span class="ic">↻</span><span>Actualizar ahora</span>
+      </a>
+      <div class="update-status">Se actualiza sola cada día a las 6:07 · toca para forzarlo</div>
     </div>
   </header>
 
@@ -838,72 +838,4 @@ document.getElementById('zoneScale').innerHTML = [1,2,3,4,5].map(z => {
 document.getElementById('zoneNote').textContent =
   `Zona estimada con la FC media de cada actividad sobre tu FC máxima registrada (${MAX_HR} ppm), con las zonas por defecto de Garmin (% de FC máx.). Una sesión con series puede tener media en Z3 aunque haya tramos en Z4–Z5.`;
 
-// ---------- Update button (sends a request to Claude via comments) ----------
-(function () {
-  const btn = document.getElementById('updateBtn');
-  const label = document.getElementById('updateBtnLabel');
-  const status = document.getElementById('updateStatus');
-  const REQUEST_TEXT = 'Actualiza el panel del Forerunner 265: vuelve a ejecutar fetch_garmin_data.py en el proyecto garmin-data, regenera dashboard.html con los datos nuevos (conservando el resto de secciones existentes) y republica este mismo artifact.';
-
-  function setStatus(text, cls) {
-    status.textContent = text;
-    status.className = 'update-status' + (cls ? ' ' + cls : '');
-  }
-
-  async function init() {
-    const comments = await (window.claude ? window.claude.use('comments') : null);
-    if (!comments) {
-      btn.disabled = true;
-      setStatus('Botón no disponible en esta vista.');
-      return;
-    }
-
-    let canSend = 'off';
-    try { canSend = await comments.canSendToClaude(); } catch (e) { canSend = 'off'; }
-    if (canSend !== 'available') {
-      const reasons = {
-        writers_only: 'Solo el propietario del panel puede pedir la actualización.',
-        no_session: 'No hay ninguna sesión de Claude Code abierta ahora mismo para atenderlo.',
-        off: 'El envío a Claude no está disponible en esta vista.',
-      };
-      btn.disabled = true;
-      setStatus(reasons[canSend] || 'No disponible ahora mismo.');
-      return;
-    }
-
-    btn.disabled = false;
-    btn.addEventListener('click', async () => {
-      btn.disabled = true;
-      btn.classList.add('spinning');
-      label.textContent = 'Enviando…';
-      setStatus('Pidiendo a Claude que actualice los datos…');
-      try {
-        const anchor = await comments.anchorFor(btn);
-        await comments.sendToClaude({ anchor, text: REQUEST_TEXT });
-        label.textContent = 'Solicitud enviada';
-        setStatus('Claude está actualizando el panel — tardará uno o dos minutos y esta página se republicará sola.', 'ok');
-      } catch (err) {
-        const code = err && err.code;
-        const msgs = {
-          consent_required: 'Debes aceptar el permiso de comentarios (vuelve a pulsar el botón).',
-          forbidden: 'No tienes permiso para pedir actualizaciones desde aquí.',
-          claude_unavailable: 'No se pudo avisar a Claude ahora mismo. Inténtalo de nuevo en un momento.',
-          rate_limited: 'Has pedido varias actualizaciones seguidas — espera un poco.',
-        };
-        label.textContent = 'Actualizar datos';
-        setStatus(msgs[code] || 'No se pudo enviar la solicitud.', 'err');
-        btn.classList.remove('spinning');
-        btn.disabled = false;
-        return;
-      }
-      btn.classList.remove('spinning');
-      setTimeout(() => {
-        label.textContent = 'Actualizar datos';
-        btn.disabled = false;
-      }, 15000);
-    });
-  }
-
-  init();
-})();
 </script>

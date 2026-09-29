@@ -62,6 +62,36 @@ def main():
             "end_level": end_level,
         })
 
+    # Coach calendar: match planned workouts to completed activities by workout_id
+    activities_by_workout_id = {
+        int(r["workout_id"]): r for r in act_records if r.get("workout_id") not in ("", None)
+    }
+    scheduled_raw = []
+    scheduled_path = DATA_DIR / "scheduled_workouts.json"
+    if scheduled_path.exists():
+        scheduled_raw = json.load(open(scheduled_path, encoding="utf-8"))
+    today_str = pd.Timestamp.today().strftime("%Y-%m-%d")
+    coach_plan = []
+    for w in scheduled_raw:
+        wid = w.get("workout_id")
+        match = activities_by_workout_id.get(int(wid)) if wid else None
+        if match:
+            status = "done"
+        elif (w.get("date") or "9999") < today_str:
+            status = "missed"
+        else:
+            status = "upcoming"
+        coach_plan.append({
+            "date": w.get("date"),
+            "title": w.get("title"),
+            "sport": w.get("sport"),
+            "status": status,
+            "activity_name": match.get("name") if match else None,
+            "avg_hr": match.get("avg_hr") if match else None,
+            "distance_km": match.get("distance_km") if match else None,
+            "duration_min": match.get("duration_min") if match else None,
+        })
+
     splits_raw = json.load(open(DATA_DIR / "run_splits.json", encoding="utf-8"))
     run_splits = {}
     for act_id, v in splits_raw.items():
@@ -89,6 +119,7 @@ def main():
         "personalRecords": personal_records,
         "bodyBattery": body_battery,
         "runSplits": run_splits,
+        "coachPlan": coach_plan,
     }
     with open(DATA_DIR / "combined.json", "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False)

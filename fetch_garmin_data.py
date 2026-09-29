@@ -37,6 +37,7 @@ def fetch_activities(client: Garmin, days: int) -> pd.DataFrame:
             continue
         rows.append({
             "activity_id": a.get("activityId"),
+            "workout_id": a.get("workoutId"),
             "date": start,
             "name": a.get("activityName"),
             "type": a.get("activityType", {}).get("typeKey"),
@@ -119,6 +120,34 @@ def fetch_personal_records(client: Garmin) -> dict:
         return {}
 
 
+def _add_months(year: int, month: int, offset: int) -> tuple[int, int]:
+    total = (year * 12 + (month - 1)) + offset
+    return total // 12, total % 12 + 1
+
+
+def fetch_scheduled_workouts(client: Garmin) -> list:
+    """Garmin Coach calendar: previous, current and next month, deduped by id."""
+    today = date.today()
+    items_by_id = {}
+    for offset in (-1, 0, 1):
+        y, m = _add_months(today.year, today.month, offset)
+        try:
+            cal = client.get_scheduled_workouts(y, m)
+        except Exception:
+            continue
+        for item in cal.get("calendarItems", []):
+            if item.get("itemType") == "workout":
+                items_by_id[item["id"]] = {
+                    "id": item.get("id"),
+                    "date": item.get("date"),
+                    "title": item.get("title"),
+                    "sport": item.get("sportTypeKey"),
+                    "workout_id": item.get("workoutId"),
+                    "atp_plan_id": item.get("atpPlanId"),
+                }
+    return sorted(items_by_id.values(), key=lambda x: x["date"] or "")
+
+
 def fetch_run_splits(client: Garmin, activities_df: pd.DataFrame) -> dict:
     splits_by_activity = {}
     runs = activities_df[activities_df["type"] == "running"]
@@ -182,6 +211,12 @@ def main():
     with open(DATA_DIR / "run_splits.json", "w", encoding="utf-8") as f:
         json.dump(run_splits, f, ensure_ascii=False, indent=2)
     print(f"  -> {len(run_splits)} carreras con splits en data/run_splits.json")
+
+    print("Descargando calendario de entrenos de Garmin Coach...")
+    scheduled = fetch_scheduled_workouts(client)
+    with open(DATA_DIR / "scheduled_workouts.json", "w", encoding="utf-8") as f:
+        json.dump(scheduled, f, ensure_ascii=False, indent=2)
+    print(f"  -> {len(scheduled)} entrenos planificados en data/scheduled_workouts.json")
 
     print("\nListo. Pasale estos archivos a Claude para el analisis/dashboard.")
 

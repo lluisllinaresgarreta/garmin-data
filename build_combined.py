@@ -112,6 +112,8 @@ def main():
         r["km_splits"] = split_detail.get("km_splits") or []
         r["hr_drift_pct"] = split_detail.get("hr_drift_pct")
         r["z2_pace_sec_km"] = split_detail.get("z2_pace_sec_km")
+        r["avg_cadence_running"] = split_detail.get("avg_cadence_running")
+        r["avg_cadence_total"] = split_detail.get("avg_cadence_total")
 
     daily = daily.sort_values("date")
     daily_records = daily.fillna("").to_dict(orient="records")
@@ -270,8 +272,8 @@ def main():
         dist = r.get("distance_km") or 0
         bucket["km_total"] += dist
         bucket["longest_run_km"] = max(bucket["longest_run_km"], dist)
-        if r.get("cadence_spm") not in ("", None):
-            bucket["cadences"].append(r["cadence_spm"])
+        if r.get("avg_cadence_running") not in ("", None):
+            bucket["cadences"].append(r["avg_cadence_running"])
         if r.get("z2_pace_sec_km") not in ("", None):
             bucket["z2_paces"].append(r["z2_pace_sec_km"])
     run_trends = []

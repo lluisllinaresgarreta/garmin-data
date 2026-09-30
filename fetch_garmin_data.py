@@ -341,6 +341,14 @@ def fetch_activity_weather(client: Garmin, activities_df: pd.DataFrame) -> dict:
     return weather
 
 
+# The watch's raw time-series directRunCadence is steps of ONE leg per minute (~55-80
+# for real running); double it to get total steps/min, matching every other cadence
+# figure in the dashboard (e.g. Garmin's own averageRunningCadenceInStepsPerMinute).
+CADENCE_DOUBLE = 2
+# Below this (already-doubled) cadence, treat the sample as walking/stopped rather than running.
+RUN_CADENCE_THRESHOLD = 130
+
+
 def fetch_run_km_splits(client: Garmin, activities_df: pd.DataFrame, zone2_low, zone2_high, cap: int = 8) -> dict:
     """Real per-kilometer splits (pace/HR/cadence), HR drift (2nd half vs 1st half) and
     average pace while in Z2, computed from the raw activity detail time series."""
@@ -370,7 +378,8 @@ def fetch_run_km_splits(client: Garmin, activities_df: pd.DataFrame, zone2_low, 
             if t is None or dist is None:
                 continue
             hr = m[i_hr] if i_hr is not None and i_hr < len(m) else None
-            cad = m[i_cad] if i_cad is not None and i_cad < len(m) else None
+            cad_raw = m[i_cad] if i_cad is not None and i_cad < len(m) else None
+            cad = cad_raw * CADENCE_DOUBLE if cad_raw is not None else None
             samples.append((t, dist, hr, cad))
         if len(samples) < 2:
             continue
@@ -380,11 +389,15 @@ def fetch_run_km_splits(client: Garmin, activities_df: pd.DataFrame, zone2_low, 
         bucket_start_t, bucket_start_dist = samples[0][0], samples[0][1]
         next_km = 1000.0
         hrs, cads = [], []
+        all_cadences, running_cadences = [], []
         for t, dist, hr, cad in samples:
             if hr is not None:
                 hrs.append(hr)
             if cad is not None:
                 cads.append(cad)
+                all_cadences.append(cad)
+                if cad >= RUN_CADENCE_THRESHOLD:
+                    running_cadences.append(cad)
             if dist >= next_km:
                 seg_dist = dist - bucket_start_dist
                 seg_t = t - bucket_start_t
@@ -442,6 +455,8 @@ def fetch_run_km_splits(client: Garmin, activities_df: pd.DataFrame, zone2_low, 
             "km_splits": km_splits,
             "hr_drift_pct": hr_drift_pct,
             "z2_pace_sec_km": z2_pace_sec_km,
+            "avg_cadence_running": round(sum(running_cadences) / len(running_cadences)) if running_cadences else None,
+            "avg_cadence_total": round(sum(all_cadences) / len(all_cadences)) if all_cadences else None,
         }
     return result
 

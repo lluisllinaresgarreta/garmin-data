@@ -49,7 +49,10 @@ def fetch_activities(client: Garmin, days: int) -> pd.DataFrame:
             "calories": a.get("calories"),
             "training_effect_aerobic": a.get("aerobicTrainingEffect"),
             "training_effect_anaerobic": a.get("anaerobicTrainingEffect"),
+            "training_load": a.get("activityTrainingLoad"),
             "vo2max": a.get("vO2MaxValue"),
+            "cadence_spm": a.get("averageRunningCadenceInStepsPerMinute"),
+            "stride_length_cm": a.get("avgStrideLength"),
         })
     return pd.DataFrame(rows)
 
@@ -62,7 +65,7 @@ def fetch_daily_metrics(client: Garmin, days: int) -> pd.DataFrame:
         try:
             sleep = client.get_sleep_data(d_str)
             hrv = client.get_hrv_data(d_str)
-            steps = client.get_steps_data(d_str)
+            steps_raw = client.get_steps_data(d_str)
             rhr = client.get_rhr_day(d_str)
         except Exception:
             continue
@@ -70,18 +73,33 @@ def fetch_daily_metrics(client: Garmin, days: int) -> pd.DataFrame:
             readiness = client.get_training_readiness(d_str)
         except Exception:
             readiness = None
+        try:
+            stress = client.get_stress_data(d_str)
+        except Exception:
+            stress = None
         readiness_item = readiness[0] if isinstance(readiness, list) and readiness else (readiness or {})
+        daily_sleep = (sleep or {}).get("dailySleepDTO", {}) or {}
+        hrv_summary = (hrv or {}).get("hrvSummary", {}) or {}
+        total_steps = sum(b.get("steps") or 0 for b in steps_raw) if steps_raw else None
         rows.append({
             "date": d_str,
-            "sleep_score": (sleep or {}).get("dailySleepDTO", {}).get("sleepScores", {}).get("overall", {}).get("value"),
-            "sleep_hours": round(((sleep or {}).get("dailySleepDTO", {}).get("sleepTimeSeconds") or 0) / 3600, 2),
-            "hrv_avg": (hrv or {}).get("hrvSummary", {}).get("lastNightAvg") if hrv else None,
+            "sleep_score": daily_sleep.get("sleepScores", {}).get("overall", {}).get("value"),
+            "sleep_hours": round((daily_sleep.get("sleepTimeSeconds") or 0) / 3600, 2),
+            "sleep_deep_min": round((daily_sleep.get("deepSleepSeconds") or 0) / 60),
+            "sleep_light_min": round((daily_sleep.get("lightSleepSeconds") or 0) / 60),
+            "sleep_rem_min": round((daily_sleep.get("remSleepSeconds") or 0) / 60),
+            "sleep_awake_min": round((daily_sleep.get("awakeSleepSeconds") or 0) / 60),
+            "hrv_avg": hrv_summary.get("lastNightAvg"),
+            "hrv_weekly_avg": hrv_summary.get("weeklyAvg"),
+            "hrv_baseline": hrv_summary.get("baseline"),
+            "hrv_status": hrv_summary.get("status"),
             "resting_hr": rhr.get("allMetrics", {}).get("metricsMap", {}).get("WELLNESS_RESTING_HEART_RATE", [{}])[0].get("value") if rhr else None,
-            "steps": steps[0].get("totalSteps") if steps else None,
+            "steps": total_steps,
             "training_readiness": readiness_item.get("score"),
             "readiness_feedback": readiness_item.get("feedbackLong") or readiness_item.get("level"),
-            "recovery_time_hours": readiness_item.get("recoveryTime"),  # NOTE: Garmin returns this in minutes, not hours
-
+            "recovery_time_minutes": readiness_item.get("recoveryTime"),
+            "avg_stress": (stress or {}).get("avgStressLevel"),
+            "max_stress": (stress or {}).get("maxStressLevel"),
         })
     return pd.DataFrame(rows)
 
@@ -118,6 +136,38 @@ def fetch_personal_records(client: Garmin) -> dict:
         return client.get_personal_record()
     except Exception:
         return {}
+
+
+def fetch_body_composition(client: Garmin, days: int) -> dict:
+    try:
+        start = (date.today() - timedelta(days=days)).isoformat()
+        end = date.today().isoformat()
+        return client.get_body_composition(start, end)
+    except Exception:
+        return {}
+
+
+def fetch_profile(client: Garmin, sample_activity_id=None) -> dict:
+    """HR zone boundaries, lactate/VO2max reference points, observed max HR."""
+    out = {}
+    try:
+        p = client.get_user_profile()
+        ud = p.get("userData", {}) or {}
+        out["lactate_threshold_hr"] = ud.get("lactateThresholdHeartRate")
+        out["lactate_threshold_hr_auto"] = ud.get("thresholdHeartRateAutoDetected")
+        out["vo2max_running"] = ud.get("vo2MaxRunning")
+        out["weight_g"] = ud.get("weight")
+    except Exception:
+        pass
+    if sample_activity_id:
+        try:
+            zones = client.get_activity_hr_in_timezones(str(sample_activity_id))
+            out["hr_zone_boundaries"] = [
+                {"zone": z.get("zoneNumber"), "low": z.get("zoneLowBoundary")} for z in zones
+            ]
+        except Exception:
+            pass
+    return out
 
 
 def _add_months(year: int, month: int, offset: int) -> tuple[int, int]:
@@ -201,6 +251,39 @@ def fetch_run_splits(client: Garmin, activities_df: pd.DataFrame) -> dict:
     return splits_by_activity
 
 
+def fetch_hr_zones(client: Garmin, activities_df: pd.DataFrame) -> dict:
+    """Time-in-zone (seconds) per activity, for activities that recorded HR."""
+    zones_by_activity = {}
+    with_hr = activities_df[activities_df["avg_hr"].notna()]
+    for _, row in with_hr.iterrows():
+        try:
+            zones = client.get_activity_hr_in_timezones(str(row["activity_id"]))
+        except Exception:
+            continue
+        zones_by_activity[str(row["activity_id"])] = [
+            {"zone": z.get("zoneNumber"), "secs": z.get("secsInZone"), "low": z.get("zoneLowBoundary")}
+            for z in zones
+        ]
+    return zones_by_activity
+
+
+def fetch_exercise_sets(client: Garmin, activities_df: pd.DataFrame) -> dict:
+    """Sets/reps/weight per strength_training activity."""
+    sets_by_activity = {}
+    strength = activities_df[activities_df["type"] == "strength_training"]
+    for _, row in strength.iterrows():
+        try:
+            data = client.get_activity_exercise_sets(str(row["activity_id"]))
+        except Exception:
+            continue
+        sets_by_activity[str(row["activity_id"])] = {
+            "date": row["date"],
+            "name": row["name"],
+            "sets": data.get("exerciseSets", []),
+        }
+    return sets_by_activity
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--days", type=int, default=90, help="Dias hacia atras a descargar")
@@ -214,7 +297,7 @@ def main():
     activities_df.to_csv(DATA_DIR / "activities.csv", index=False, encoding="utf-8")
     print(f"  -> {len(activities_df)} actividades guardadas en data/activities.csv")
 
-    print("Descargando metricas diarias (sueno, HRV, pasos, FC reposo, training readiness)...")
+    print("Descargando metricas diarias (sueno, HRV, pasos, FC reposo, training readiness, estres)...")
     daily_df = fetch_daily_metrics(client, args.days)
     daily_df.to_csv(DATA_DIR / "daily_metrics.csv", index=False, encoding="utf-8")
     print(f"  -> {len(daily_df)} dias guardados en data/daily_metrics.csv")
@@ -243,11 +326,37 @@ def main():
         json.dump(prs, f, ensure_ascii=False, indent=2)
     print("  -> data/personal_records.json")
 
+    print("Descargando composicion corporal...")
+    body_comp = fetch_body_composition(client, args.days)
+    with open(DATA_DIR / "body_composition.json", "w", encoding="utf-8") as f:
+        json.dump(body_comp, f, ensure_ascii=False, indent=2)
+    print("  -> data/body_composition.json")
+
     print("Descargando splits de carreras...")
     run_splits = fetch_run_splits(client, activities_df)
     with open(DATA_DIR / "run_splits.json", "w", encoding="utf-8") as f:
         json.dump(run_splits, f, ensure_ascii=False, indent=2)
     print(f"  -> {len(run_splits)} carreras con splits en data/run_splits.json")
+
+    print("Descargando tiempo en zonas de FC por actividad...")
+    hr_zones = fetch_hr_zones(client, activities_df)
+    with open(DATA_DIR / "hr_zones.json", "w", encoding="utf-8") as f:
+        json.dump(hr_zones, f, ensure_ascii=False, indent=2)
+    print(f"  -> {len(hr_zones)} actividades con zonas en data/hr_zones.json")
+
+    print("Descargando series de fuerza (sets/reps/peso)...")
+    exercise_sets = fetch_exercise_sets(client, activities_df)
+    with open(DATA_DIR / "exercise_sets.json", "w", encoding="utf-8") as f:
+        json.dump(exercise_sets, f, ensure_ascii=False, indent=2)
+    print(f"  -> {len(exercise_sets)} sesiones de fuerza en data/exercise_sets.json")
+
+    print("Descargando perfil (zonas de FC, umbral, VO2max)...")
+    sample_run = activities_df[activities_df["type"] == "running"]
+    sample_id = sample_run.iloc[0]["activity_id"] if not sample_run.empty else None
+    profile = fetch_profile(client, sample_id)
+    with open(DATA_DIR / "profile.json", "w", encoding="utf-8") as f:
+        json.dump(profile, f, ensure_ascii=False, indent=2)
+    print("  -> data/profile.json")
 
     print("Descargando calendario de entrenos de Garmin Coach...")
     scheduled = fetch_scheduled_workouts(client)

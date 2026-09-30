@@ -1077,10 +1077,13 @@ document.getElementById('zoneNote').textContent = zonesAreReal
 // ---------- Resumen semanal ----------
 function mondayOf(d) {
   const date = new Date(d + 'T00:00:00');
-  const day = date.getDay(); // 0 = Sunday
+  const day = date.getDay(); // 0 = Sunday, in local time
   const diff = day === 0 ? -6 : 1 - day;
-  date.setDate(date.getDate() + diff);
-  return date.toISOString().slice(0, 10);
+  // Apply the offset in UTC terms (not local) so the result never shifts by
+  // a day when re-serialized via toISOString in a non-UTC timezone.
+  const utc = new Date(d + 'T00:00:00Z');
+  utc.setUTCDate(utc.getUTCDate() + diff);
+  return utc.toISOString().slice(0, 10);
 }
 const weekStart = mondayOf(todayStr);
 const weekRuns = runActivities.filter(a => a.date >= weekStart);
@@ -1221,29 +1224,62 @@ if (stageTotal > 0) {
     return out;
   }
 
+  // A day already has real Garmin activities logged on it -> turn each into a
+  // "done" session instead of asking the scheduler to guess at it.
+  function sessionFromActivity(a) {
+    if (a.type === 'running') {
+      const coachMatch = coachPlan.find(w => w.date === a.date && w.sport === 'running' && w.status === 'done');
+      return { type: 'run', label: (coachMatch && coachMatch.title) || a.name, status: 'done' };
+    }
+    if (a.type === 'strength_training') {
+      const n = (a.name || '').toLowerCase();
+      const sub = /pull|tir[oó]n|espalda/.test(n) ? 'pull' : /push|empuje|pecho/.test(n) ? 'push' : /leg|pierna/.test(n) ? 'leg' : null;
+      return { type: 'strength', sub, label: a.name || 'Fuerza', status: 'done' };
+    }
+    if (a.type === 'indoor_cycling') {
+      return { type: 'bike', label: a.name || 'Bici', status: 'done' };
+    }
+    const meta = CAT_META[a.type];
+    return { type: 'other', label: (meta && meta.label) || a.type, status: 'done' };
+  }
+
   // ---- Core scheduler: pure function of (days, coach runs, logged activities) ----
+  // Days that already happened only ever show what was actually logged (or,
+  // lacking that, count as a natural rest day) — the scheduler only ever
+  // proposes NEW sessions on today or later, and only on days without a
+  // logged activity yet, so the plan fills itself in as the week goes by.
   function computeWeekPlan(days) {
     const plan = DOW.map((dow, i) => {
       const date = addDays(weekStart, i);
+      const dayActs = activitiesThisWeek.filter(a => a.date === date);
+      const locked = dayActs.length > 0;
       const avail = days[dow].avail;
       const minutes = days[dow].minutes || 0;
-      return { dow, date, avail, minutes, remaining: (avail && avail !== 'no') ? minutes : 0, sessions: [] };
+      const schedulable = !locked && date >= todayStr;
+      return {
+        dow, date, locked, schedulable, avail, minutes,
+        remaining: schedulable && avail && avail !== 'no' ? minutes : 0,
+        sessions: locked ? dayActs.map(sessionFromActivity) : [],
+      };
     });
     const byDate = Object.fromEntries(plan.map(d => [d.date, d]));
     const dropped = [], moves = [], notes = [];
-    const canRun = d => d.avail === 'run' || d.avail === 'both';
-    const canStrength = d => d.avail === 'gym' || d.avail === 'both';
+    const canRun = d => d.schedulable && (d.avail === 'run' || d.avail === 'both');
+    const canStrength = d => d.schedulable && (d.avail === 'gym' || d.avail === 'both');
     const dayBeforeIsRun = d => { const i = plan.indexOf(d); return i > 0 && plan[i-1].sessions.some(s => s.type === 'run'); };
 
-    // 1) Coach runs — on their own date if possible, else move within the week
-    const runDaysUsed = new Set();
+    // 1) Coach runs — on their own date if possible, else move within the week.
+    // Already-done runs are represented by their real activity above (skip);
+    // missed ones (their day is now in the past) get recolocated automatically.
+    const runDaysUsed = new Set(plan.filter(d => d.sessions.some(s=>s.type==='run')).map(d=>d.dow));
     coachRunsThisWeek.slice().sort((a,b) => a.date < b.date ? -1 : 1).forEach(run => {
+      if (run.status === 'done') return;
       const estMin = (run.detail && run.detail.estimated_duration_sec) ? Math.round(run.detail.estimated_duration_sec/60) : 30;
       const need = Math.min(estMin, RUN_MIN);
       const own = byDate[run.date];
       if (own && canRun(own) && own.remaining >= need) {
         const used = Math.min(estMin, own.remaining);
-        own.sessions.push({ type:'run', label: run.title, estMin: used, short: used < estMin, coachDate: run.date });
+        own.sessions.push({ type:'run', label: run.title, estMin: used, short: used < estMin, status:'pending' });
         own.remaining -= used; runDaysUsed.add(own.dow);
         return;
       }
@@ -1255,95 +1291,90 @@ if (stageTotal > 0) {
       const pick = nonConsecutive[0] || candidates[0];
       if (pick) {
         const used = Math.min(estMin, pick.remaining);
-        pick.sessions.push({ type:'run', label: run.title, estMin: used, short: used < estMin, coachDate: run.date, moved: true });
+        pick.sessions.push({ type:'run', label: run.title, estMin: used, short: used < estMin, status:'pending', moved: run.date >= todayStr });
         pick.remaining -= used; runDaysUsed.add(pick.dow);
-        moves.push({ title: run.title, from: run.date, to: pick.date });
+        if (run.date < todayStr) {
+          notes.push(`Te saltaste "${run.title}" (${fmtDateShort(run.date)}) — la recoloco el ${fmtDateShort(pick.date)}.`);
+        } else {
+          moves.push({ title: run.title, from: run.date, to: pick.date });
+        }
       } else {
-        dropped.push(`Carrera de Coach "${run.title}" (${fmtDateShort(run.date)})`);
+        dropped.push(`Carrera de Coach "${run.title}" (${fmtDateShort(run.date)}${run.date < todayStr ? ', saltada' : ''})`);
       }
     });
 
+    // Sessions already done this week (from real activities) don't need scheduling again.
+    const fulfilledSubs = new Set();
+    plan.forEach(d => { if (d.locked) d.sessions.forEach(s => { if (s.type === 'strength' && s.sub) fulfilledSubs.add(s.sub); }); });
+
     // 2) Leg day — never the day before a run; ideally same day as / day after a run
-    const legCandidates = plan.filter(d => canStrength(d) && d.remaining >= STRENGTH_MIN && !dayBeforeIsRun(d));
-    const legDay = legCandidates.find(d => d.sessions.some(s=>s.type==='run'))
-      || legCandidates.find(d => { const i=plan.indexOf(d); return i>0 && plan[i-1].sessions.some(s=>s.type==='run'); })
-      || legCandidates.find(d => d.sessions.length===0)
-      || legCandidates[0];
-    if (legDay) { legDay.sessions.push({type:'strength', sub:'leg', label:'Pierna', estMin:STRENGTH_MIN}); legDay.remaining -= STRENGTH_MIN; }
-    else dropped.push('Pierna (ningún día de gimnasio libre que no sea la víspera de una carrera)');
+    if (!fulfilledSubs.has('leg')) {
+      const legCandidates = plan.filter(d => canStrength(d) && d.remaining >= STRENGTH_MIN && !dayBeforeIsRun(d));
+      const legDay = legCandidates.find(d => d.sessions.some(s=>s.type==='run'))
+        || legCandidates.find(d => { const i=plan.indexOf(d); return i>0 && plan[i-1].sessions.some(s=>s.type==='run'); })
+        || legCandidates.find(d => d.sessions.length===0)
+        || legCandidates[0];
+      if (legDay) { legDay.sessions.push({type:'strength', sub:'leg', label:'Pierna', estMin:STRENGTH_MIN, status:'pending'}); legDay.remaining -= STRENGTH_MIN; }
+      else dropped.push('Pierna (ningún día de gimnasio libre que no sea la víspera de una carrera)');
+    }
 
     // 3) Empuje y tirón
-    ['Empuje','Tirón'].forEach(label => {
+    [['push','Empuje'],['pull','Tirón']].forEach(([sub, label]) => {
+      if (fulfilledSubs.has(sub)) return;
       const cand = plan.filter(d => canStrength(d) && d.remaining >= STRENGTH_MIN).sort((a,b)=>a.sessions.length-b.sessions.length);
       const pick = cand[0];
-      if (pick) { pick.sessions.push({type:'strength', sub: label==='Empuje'?'push':'pull', label, estMin:STRENGTH_MIN}); pick.remaining -= STRENGTH_MIN; }
+      if (pick) { pick.sessions.push({type:'strength', sub, label, estMin:STRENGTH_MIN, status:'pending'}); pick.remaining -= STRENGTH_MIN; }
       else dropped.push(label);
     });
 
-    // 4) Bici Z2 — relleno, preferiblemente tras un día de pesas, máx. 2 huecos
-    let bikeSlots = 0;
+    // 4) Bici Z2 — relleno, preferiblemente tras un día de pesas, máx. 2 a la semana en total
+    const doneBikeCount = plan.reduce((n,d) => n + (d.locked ? d.sessions.filter(s=>s.type==='bike').length : 0), 0);
+    let bikeSlots = Math.max(0, 2 - doneBikeCount);
     plan.filter(d => d.remaining >= BIKE_MIN)
       .sort((a,b) => (a.sessions.some(s=>s.type==='strength')?0:1) - (b.sessions.some(s=>s.type==='strength')?0:1))
       .forEach(d => {
-        if (bikeSlots >= 2 || d.remaining < BIKE_MIN) return;
+        if (bikeSlots <= 0 || d.remaining < BIKE_MIN) return;
         const mins = Math.min(d.remaining, 45);
-        d.sessions.push({type:'bike', label:'Bici Z2', estMin: mins});
-        d.remaining -= mins; bikeSlots++;
+        d.sessions.push({type:'bike', label:'Bici Z2', estMin: mins, status:'pending'});
+        d.remaining -= mins; bikeSlots--;
       });
 
-    // 5) Día de descanso/movilidad
+    // 5) Día de descanso/movilidad (un día pasado sin actividad ya cuenta como tal)
     if (!plan.some(d => d.sessions.length === 0)) {
       notes.push('No ha quedado ningún día libre esta semana — intenta reservar al menos uno de descanso o solo movilidad.');
     }
-
-    // 6) Cruce con actividades ya registradas -> hecho / pendiente / saltado
-    plan.forEach(d => {
-      d.sessions.forEach(s => {
-        const matchType = s.type === 'run' ? 'running' : s.type === 'bike' ? 'indoor_cycling' : 'strength_training';
-        const done = activitiesThisWeek.some(a => a.date === d.date && a.type === matchType);
-        s.status = done ? 'done' : (d.date < todayStr ? 'skipped' : 'pending');
-      });
-    });
-
-    // 7) Recolocar lo saltado en lo que queda de semana
-    const skipped = [];
-    plan.forEach(d => d.sessions.forEach(s => { if (s.status === 'skipped') skipped.push({ ...s, origDate: d.date }); }));
-    const prio = { run:0, strength:1, bike:2 };
-    skipped.sort((a,b) => prio[a.type]-prio[b.type]);
-    skipped.forEach(s => {
-      const need = s.type==='run' ? RUN_MIN : s.type==='strength' ? STRENGTH_MIN : BIKE_MIN;
-      const target = plan.find(d => d.date > todayStr && d.remaining >= need
-        && (s.type==='run' ? canRun(d) : canStrength(d))
-        && !(s.sub==='leg' && dayBeforeIsRun(d)));
-      if (target) {
-        target.sessions.push({ ...s, status:'pending', reinserted:true, from: s.origDate });
-        target.remaining -= need;
-        notes.push(`${s.label} (saltada el ${fmtDateShort(s.origDate)}) → recolocada el ${fmtDateShort(target.date)}.`);
-      } else {
-        dropped.push(`${s.label} — saltada el ${fmtDateShort(s.origDate)} y no cupo en el resto de la semana`);
-      }
-    });
 
     return { plan, dropped, moves, notes };
   }
 
   // ---- Rendering ----
-  const STATUS_LABEL = { done:'hecho', pending:'pendiente', skipped:'saltado' };
+  const STATUS_LABEL = { done:'hecho', pending:'pendiente' };
 
   function renderPlannerUI(days, owner, result) {
     document.getElementById('plannerBody').innerHTML = DOW.map((dow, i) => {
       const date = addDays(weekStart, i);
       const d = days[dow];
       const planDay = result.plan[i];
+      const isPast = date < todayStr;
+      const editable = owner && planDay.schedulable;
       const assignedText = planDay.sessions.length
         ? planDay.sessions.map(s => `${s.label}${s.status ? ' ('+STATUS_LABEL[s.status]+')' : ''}`).join(' + ')
-        : (d.avail === 'no' ? '—' : 'Libre');
-      const controls = owner ? `
+        : (planDay.locked ? '—' : (isPast ? 'Descanso' : (d.avail === 'no' ? '—' : 'Libre')));
+      let controls;
+      if (editable) {
+        controls = `
         <select class="planner-select" data-field="avail" data-dow="${dow}">
           ${['no','gym','run','both'].map(v => `<option value="${v}" ${d.avail===v?'selected':''}>${AVAIL_LABEL[v]}</option>`).join('')}
         </select>
         <input class="planner-input num" type="number" min="0" step="5" data-field="minutes" data-dow="${dow}" value="${d.minutes}"> min
-      ` : `<span class="planner-readonly-val">${d.avail ? AVAIL_LABEL[d.avail] : 'Sin definir'}${d.avail && d.avail!=='no' ? ' · ' + d.minutes + ' min' : ''}</span>`;
+      `;
+      } else if (planDay.locked) {
+        controls = `<span class="planner-readonly-val">Ya registrado</span>`;
+      } else if (isPast) {
+        controls = `<span class="planner-readonly-val">Día pasado</span>`;
+      } else {
+        controls = `<span class="planner-readonly-val">${d.avail ? AVAIL_LABEL[d.avail] : 'Sin definir'}${d.avail && d.avail!=='no' ? ' · ' + d.minutes + ' min' : ''}</span>`;
+      }
       return `
       <div class="planner-row${date===todayStr?' is-today':''}">
         <div class="planner-day">${DOW_LABEL[dow]}<div class="dd">${fmtDateShort(date)}</div></div>
@@ -1401,6 +1432,9 @@ if (stageTotal > 0) {
       sessionHtml = `<div class="tb-main">Día libre</div><div class="tb-sub">No hay ninguna sesión planificada hoy.</div>`;
     } else {
       sessionHtml = todayEntry.sessions.map(s => {
+        if (s.status === 'done') {
+          return `<div class="tb-main">${s.label} <span style="font-weight:500;color:var(--good);font-size:11.5px;">(hecho hoy)</span></div>`;
+        }
         let sub = '';
         if (sem.cls === 'bad') sub = `Sugerencia: descanso o Z2 muy suave (${z2Low}–${z2High} ppm) en vez de esto.`;
         else if (sem.cls === 'warn') {

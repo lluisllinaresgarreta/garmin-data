@@ -5,6 +5,7 @@ Uso:
     python build_combined.py
 """
 import json
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -89,6 +90,28 @@ def main():
                 continue
             if isinstance(v, float) and pd.isna(v):
                 r[k] = ""
+
+    # Self-evaluation (feel/RPE), Coach compliance, elevation, run/walk/stand time and weather
+    extras_raw = load_json("activity_extras.json", {})
+    weather_raw = load_json("activity_weather.json", {})
+    km_splits_raw = load_json("run_km_splits.json", {})
+    for r in act_records:
+        aid = str(r["activity_id"])
+        extra = extras_raw.get(aid, {})
+        r["feel"] = extra.get("feel")
+        r["feel_label"] = extra.get("feel_label") or ""
+        r["rpe"] = extra.get("rpe")
+        r["compliance_score"] = extra.get("compliance_score")
+        r["elevation_gain_m"] = extra.get("elevation_gain_m")
+        r["elevation_loss_m"] = extra.get("elevation_loss_m")
+        r["run_sec"] = extra.get("run_sec") or 0
+        r["walk_sec"] = extra.get("walk_sec") or 0
+        r["stand_sec"] = extra.get("stand_sec") or 0
+        r["temp_c"] = weather_raw.get(aid, {}).get("temp_c")
+        split_detail = km_splits_raw.get(aid, {})
+        r["km_splits"] = split_detail.get("km_splits") or []
+        r["hr_drift_pct"] = split_detail.get("hr_drift_pct")
+        r["z2_pace_sec_km"] = split_detail.get("z2_pace_sec_km")
 
     daily = daily.sort_values("date")
     daily_records = daily.fillna("").to_dict(orient="records")
@@ -231,6 +254,37 @@ def main():
         })
     strength_sessions.sort(key=lambda x: x["date"] or "", reverse=True)
 
+    # Weekly running trends: km, longest run, cadence, avg pace while in Z2 (last 12 weeks)
+    run_weeks = {}
+    for r in act_records:
+        if r.get("type") != "running" or not r.get("date"):
+            continue
+        d = date.fromisoformat(r["date"])
+        y, wk, _ = d.isocalendar()
+        key = (y, wk)
+        week_start = date.fromisocalendar(y, wk, 1).isoformat()
+        bucket = run_weeks.setdefault(key, {
+            "week_start": week_start, "km_total": 0.0, "longest_run_km": 0.0,
+            "cadences": [], "z2_paces": [],
+        })
+        dist = r.get("distance_km") or 0
+        bucket["km_total"] += dist
+        bucket["longest_run_km"] = max(bucket["longest_run_km"], dist)
+        if r.get("cadence_spm") not in ("", None):
+            bucket["cadences"].append(r["cadence_spm"])
+        if r.get("z2_pace_sec_km") not in ("", None):
+            bucket["z2_paces"].append(r["z2_pace_sec_km"])
+    run_trends = []
+    for (y, wk), b in sorted(run_weeks.items()):
+        run_trends.append({
+            "week_start": b["week_start"],
+            "km_total": round(b["km_total"], 1),
+            "longest_run_km": round(b["longest_run_km"], 1),
+            "avg_cadence": round(sum(b["cadences"]) / len(b["cadences"])) if b["cadences"] else None,
+            "z2_pace_sec_km": round(sum(b["z2_paces"]) / len(b["z2_paces"])) if b["z2_paces"] else None,
+        })
+    run_trends = run_trends[-12:]
+
     out = {
         "activities": act_records,
         "daily": daily_records,
@@ -245,6 +299,7 @@ def main():
         "profile": profile,
         "bodyComposition": body_composition,
         "strengthSessions": strength_sessions,
+        "runTrends": run_trends,
     }
     with open(DATA_DIR / "combined.json", "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False)

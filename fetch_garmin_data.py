@@ -284,6 +284,168 @@ def fetch_exercise_sets(client: Garmin, activities_df: pd.DataFrame) -> dict:
     return sets_by_activity
 
 
+FEEL_MAP = {0: "Muy mal", 25: "Mal", 50: "Normal", 75: "Bien", 100: "Muy bien"}
+RUN_WALK_SPLIT_TYPES = {"RWD_RUN": "run_sec", "RWD_WALK": "walk_sec", "RWD_STAND": "stand_sec"}
+
+
+def fetch_activity_extras(client: Garmin, activities_df: pd.DataFrame) -> dict:
+    """Self-evaluation (feel/RPE), Coach compliance, elevation and run/walk/stand
+    time breakdown per activity — one get_activity() call each."""
+    extras = {}
+    for _, row in activities_df.iterrows():
+        activity_id = str(row["activity_id"])
+        try:
+            full = client.get_activity(activity_id)
+        except Exception:
+            continue
+        summary = full.get("summaryDTO", {}) or {}
+        run_sec = walk_sec = stand_sec = 0.0
+        for split in full.get("splitSummaries", []) or []:
+            key = RUN_WALK_SPLIT_TYPES.get(split.get("splitType"))
+            if key:
+                if key == "run_sec":
+                    run_sec += split.get("duration") or 0.0
+                elif key == "walk_sec":
+                    walk_sec += split.get("duration") or 0.0
+                else:
+                    stand_sec += split.get("duration") or 0.0
+        feel = summary.get("directWorkoutFeel")
+        rpe = summary.get("directWorkoutRpe")
+        extras[activity_id] = {
+            "feel": feel,
+            "feel_label": FEEL_MAP.get(feel, ""),
+            "rpe": (rpe / 10) if rpe is not None else None,
+            "compliance_score": summary.get("directWorkoutComplianceScore"),
+            "elevation_gain_m": summary.get("elevationGain"),
+            "elevation_loss_m": summary.get("elevationLoss"),
+            "run_sec": run_sec,
+            "walk_sec": walk_sec,
+            "stand_sec": stand_sec,
+        }
+    return extras
+
+
+def fetch_activity_weather(client: Garmin, activities_df: pd.DataFrame) -> dict:
+    """Temperature (Celsius) per activity, where Garmin has weather data (outdoor only)."""
+    weather = {}
+    for _, row in activities_df.iterrows():
+        activity_id = str(row["activity_id"])
+        try:
+            w = client.get_activity_weather(activity_id)
+        except Exception:
+            continue
+        temp_f = w.get("temp") if w else None
+        if temp_f is None:
+            continue
+        weather[activity_id] = {"temp_c": round((temp_f - 32) * 5 / 9, 1)}
+    return weather
+
+
+def fetch_run_km_splits(client: Garmin, activities_df: pd.DataFrame, zone2_low, zone2_high, cap: int = 8) -> dict:
+    """Real per-kilometer splits (pace/HR/cadence), HR drift (2nd half vs 1st half) and
+    average pace while in Z2, computed from the raw activity detail time series."""
+    result = {}
+    runs = activities_df[activities_df["type"] == "running"].sort_values("date", ascending=False).head(cap)
+    for _, row in runs.iterrows():
+        activity_id = str(row["activity_id"])
+        try:
+            details = client.get_activity_details(activity_id)
+        except Exception:
+            continue
+        descriptors = {d["key"]: d["metricsIndex"] for d in details.get("metricDescriptors", [])}
+        points = details.get("activityDetailMetrics", [])
+        i_t = descriptors.get("sumElapsedDuration")
+        i_dist = descriptors.get("sumDistance")
+        i_hr = descriptors.get("directHeartRate")
+        i_cad = descriptors.get("directRunCadence")
+        if i_t is None or i_dist is None or not points:
+            continue
+
+        samples = []
+        for p in points:
+            m = p.get("metrics", [])
+            if len(m) <= max(i_t, i_dist):
+                continue
+            t, dist = m[i_t], m[i_dist]
+            if t is None or dist is None:
+                continue
+            hr = m[i_hr] if i_hr is not None and i_hr < len(m) else None
+            cad = m[i_cad] if i_cad is not None and i_cad < len(m) else None
+            samples.append((t, dist, hr, cad))
+        if len(samples) < 2:
+            continue
+
+        # Per-km splits: bucket by cumulative distance crossing each 1000m mark.
+        km_splits = []
+        bucket_start_t, bucket_start_dist = samples[0][0], samples[0][1]
+        next_km = 1000.0
+        hrs, cads = [], []
+        for t, dist, hr, cad in samples:
+            if hr is not None:
+                hrs.append(hr)
+            if cad is not None:
+                cads.append(cad)
+            if dist >= next_km:
+                seg_dist = dist - bucket_start_dist
+                seg_t = t - bucket_start_t
+                if seg_dist > 0 and seg_t > 0:
+                    km_splits.append({
+                        "km": len(km_splits) + 1,
+                        "pace_sec_km": round(seg_t / (seg_dist / 1000.0)),
+                        "avg_hr": round(sum(hrs) / len(hrs)) if hrs else None,
+                        "avg_cadence": round(sum(cads) / len(cads)) if cads else None,
+                        "partial": False,
+                    })
+                bucket_start_t, bucket_start_dist = t, dist
+                hrs, cads = [], []
+                next_km += 1000.0
+        # Trailing partial km, if there's meaningful distance left over.
+        last_t, last_dist = samples[-1][0], samples[-1][1]
+        seg_dist = last_dist - bucket_start_dist
+        seg_t = last_t - bucket_start_t
+        if seg_dist > 100 and seg_t > 0:
+            km_splits.append({
+                "km": len(km_splits) + 1,
+                "pace_sec_km": round(seg_t / (seg_dist / 1000.0)),
+                "avg_hr": round(sum(hrs) / len(hrs)) if hrs else None,
+                "avg_cadence": round(sum(cads) / len(cads)) if cads else None,
+                "partial": True,
+                "distance_m": round(seg_dist),
+            })
+
+        # HR drift: average HR in the 2nd half of elapsed time vs the 1st half.
+        hr_drift_pct = None
+        total_t = samples[-1][0] - samples[0][0]
+        if total_t > 0:
+            mid_t = samples[0][0] + total_t / 2
+            first_half = [s[2] for s in samples if s[2] is not None and s[0] <= mid_t]
+            second_half = [s[2] for s in samples if s[2] is not None and s[0] > mid_t]
+            if first_half and second_half:
+                avg1 = sum(first_half) / len(first_half)
+                avg2 = sum(second_half) / len(second_half)
+                if avg1 > 0:
+                    hr_drift_pct = round((avg2 - avg1) / avg1 * 100, 1)
+
+        # Average pace while HR was in Z2, from consecutive-sample deltas.
+        z2_dist = z2_time = 0.0
+        for a, b in zip(samples, samples[1:]):
+            hr_a, hr_b = a[2], b[2]
+            if hr_a is None or hr_b is None:
+                continue
+            avg_hr = (hr_a + hr_b) / 2
+            if zone2_low <= avg_hr < zone2_high:
+                z2_dist += max(0.0, b[1] - a[1])
+                z2_time += max(0.0, b[0] - a[0])
+        z2_pace_sec_km = round(z2_time / (z2_dist / 1000.0)) if z2_dist > 0 else None
+
+        result[activity_id] = {
+            "km_splits": km_splits,
+            "hr_drift_pct": hr_drift_pct,
+            "z2_pace_sec_km": z2_pace_sec_km,
+        }
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--days", type=int, default=90, help="Dias hacia atras a descargar")
@@ -357,6 +519,26 @@ def main():
     with open(DATA_DIR / "profile.json", "w", encoding="utf-8") as f:
         json.dump(profile, f, ensure_ascii=False, indent=2)
     print("  -> data/profile.json")
+
+    print("Descargando autoevaluacion, cumplimiento y desnivel por actividad...")
+    activity_extras = fetch_activity_extras(client, activities_df)
+    with open(DATA_DIR / "activity_extras.json", "w", encoding="utf-8") as f:
+        json.dump(activity_extras, f, ensure_ascii=False, indent=2)
+    print(f"  -> {len(activity_extras)} actividades en data/activity_extras.json")
+
+    print("Descargando temperatura por actividad...")
+    activity_weather = fetch_activity_weather(client, activities_df)
+    with open(DATA_DIR / "activity_weather.json", "w", encoding="utf-8") as f:
+        json.dump(activity_weather, f, ensure_ascii=False, indent=2)
+    print(f"  -> {len(activity_weather)} actividades con clima en data/activity_weather.json")
+
+    print("Descargando parciales por km, deriva cardiaca y ritmo en Z2 de las ultimas carreras...")
+    zones = {z["zone"]: z["low"] for z in profile.get("hr_zone_boundaries", [])}
+    zone2_low, zone2_high = zones.get(2, 120), zones.get(3, 140)
+    run_km_splits = fetch_run_km_splits(client, activities_df, zone2_low, zone2_high)
+    with open(DATA_DIR / "run_km_splits.json", "w", encoding="utf-8") as f:
+        json.dump(run_km_splits, f, ensure_ascii=False, indent=2)
+    print(f"  -> {len(run_km_splits)} carreras con analisis detallado en data/run_km_splits.json")
 
     print("Descargando calendario de entrenos de Garmin Coach...")
     scheduled = fetch_scheduled_workouts(client)

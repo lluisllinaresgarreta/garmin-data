@@ -337,6 +337,14 @@
   .planner-readonly-val { font-size: 12.5px; color: var(--text-secondary); }
   .planner-owner-note { font-size: 11px; color: var(--text-muted); margin-top: 10px; }
 
+  .planner-settings, .planner-exclude {
+    display: flex; flex-wrap: wrap; gap: 14px; padding-bottom: 12px; margin-bottom: 6px;
+    border-bottom: 1px solid var(--border); font-size: 12px; color: var(--text-secondary);
+  }
+  .planner-settings label, .planner-exclude label { display: flex; align-items: center; gap: 6px; }
+  .planner-settings input[type=number] { width: 52px; }
+  .planner-exclude input[type=checkbox] { width: 14px; height: 14px; }
+
   /* Coach calendar */
   .plan-list { display: flex; flex-direction: column; }
   .plan-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
@@ -618,7 +626,7 @@ function fmtDateShort(iso) {
 // ---------- Shared derived data ----------
 const dailyWithData = DATA.daily.filter(d => d.sleep_score !== '');
 const last = dailyWithData[dailyWithData.length - 1] || {};
-const readinessRows = DATA.daily.filter(d => d.training_readiness !== '' && d.training_readiness !== undefined).slice().reverse();
+const readinessRows = DATA.daily.filter(d => d.training_readiness !== '' && d.training_readiness !== undefined);
 const lastReadiness = readinessRows[readinessRows.length - 1] || {};
 const readinessLevel = (score) => score === '' || score === undefined ? '' : (score >= 70 ? 'Alto' : score >= 40 ? 'Moderado' : 'Bajo');
 const lastRace = DATA.racePredictions[DATA.racePredictions.length - 1] || {};
@@ -1176,7 +1184,9 @@ if (stageTotal > 0) {
   const DOW = ['mon','tue','wed','thu','fri','sat','sun'];
   const DOW_LABEL = { mon:'Lunes', tue:'Martes', wed:'Miércoles', thu:'Jueves', fri:'Viernes', sat:'Sábado', sun:'Domingo' };
   const AVAIL_LABEL = { no:'No puedo', gym:'Gimnasio', run:'Correr', both:'Ambos' };
-  const RUN_MIN = 20, STRENGTH_MIN = 40, BIKE_MIN = 20;
+  const RUN_MIN = 20;
+  const DEFAULT_STRENGTH_MIN = 90, DEFAULT_BIKE_MIN = 30;
+  const EXCLUDE_LABEL = { leg: 'Pierna', push: 'Empuje', pull: 'Tirón', bike: 'Bici Z2' };
 
   function addDays(dateStr, n) {
     const d = new Date(dateStr + 'T00:00:00Z');
@@ -1215,13 +1225,20 @@ if (stageTotal > 0) {
   const coachRunsThisWeek = coachPlan.filter(w => w.date >= weekStart && w.date <= weekEnd && w.sport === 'running');
   const activitiesThisWeek = DATA.activities.filter(a => a.date >= weekStart && a.date <= weekEnd);
 
-  function normalizeDays(pd) {
-    const out = {};
+  function normalizePlannerData(pd) {
+    const days = {};
     DOW.forEach(dow => {
       const existing = (pd && pd.days && pd.days[dow]) || {};
-      out[dow] = { avail: existing.avail || null, minutes: existing.minutes != null ? existing.minutes : 60 };
+      days[dow] = { avail: existing.avail || null, minutes: existing.minutes != null ? existing.minutes : 60 };
     });
-    return out;
+    const s = (pd && pd.settings) || {};
+    const settings = {
+      strengthMin: s.strengthMin != null ? s.strengthMin : DEFAULT_STRENGTH_MIN,
+      bikeMin: s.bikeMin != null ? s.bikeMin : DEFAULT_BIKE_MIN,
+    };
+    const ex = (pd && pd.excluded) || {};
+    const excluded = { leg: !!ex.leg, push: !!ex.push, pull: !!ex.pull, bike: !!ex.bike };
+    return { days, settings, excluded };
   }
 
   // A day already has real Garmin activities logged on it -> turn each into a
@@ -1248,7 +1265,9 @@ if (stageTotal > 0) {
   // lacking that, count as a natural rest day) — the scheduler only ever
   // proposes NEW sessions on today or later, and only on days without a
   // logged activity yet, so the plan fills itself in as the week goes by.
-  function computeWeekPlan(days) {
+  function computeWeekPlan(norm) {
+    const { days, settings, excluded } = norm;
+    const strengthMin = settings.strengthMin, bikeMin = settings.bikeMin;
     const plan = DOW.map((dow, i) => {
       const date = addDays(weekStart, i);
       const dayActs = activitiesThisWeek.filter(a => a.date === date);
@@ -1266,11 +1285,14 @@ if (stageTotal > 0) {
     const dropped = [], moves = [], notes = [];
     const canRun = d => d.schedulable && (d.avail === 'run' || d.avail === 'both');
     const canStrength = d => d.schedulable && (d.avail === 'gym' || d.avail === 'both');
-    const dayBeforeIsRun = d => { const i = plan.indexOf(d); return i > 0 && plan[i-1].sessions.some(s => s.type === 'run'); };
+    // "día antes de una carrera" = the NEXT day has a run; that's the one to avoid for leg day.
+    const nextDayHasRun = d => { const i = plan.indexOf(d); return i < plan.length - 1 && plan[i+1].sessions.some(s => s.type === 'run'); };
+    const prevDayHasRun = d => { const i = plan.indexOf(d); return i > 0 && plan[i-1].sessions.some(s => s.type === 'run'); };
 
     // 1) Coach runs — on their own date if possible, else move within the week.
     // Already-done runs are represented by their real activity above (skip);
     // missed ones (their day is now in the past) get recolocated automatically.
+    // A day with no availability set yet still shows Coach's own plan, flagged unconfirmed.
     const runDaysUsed = new Set(plan.filter(d => d.sessions.some(s=>s.type==='run')).map(d=>d.dow));
     coachRunsThisWeek.slice().sort((a,b) => a.date < b.date ? -1 : 1).forEach(run => {
       if (run.status === 'done') return;
@@ -1281,6 +1303,11 @@ if (stageTotal > 0) {
         const used = Math.min(estMin, own.remaining);
         own.sessions.push({ type:'run', label: run.title, estMin: used, short: used < estMin, status:'pending' });
         own.remaining -= used; runDaysUsed.add(own.dow);
+        return;
+      }
+      if (own && own.schedulable && own.avail == null && !own.sessions.some(s=>s.type==='run')) {
+        own.sessions.push({ type:'run', label: run.title, estMin, status:'pending', coachFallback:true });
+        runDaysUsed.add(own.dow);
         return;
       }
       const candidates = plan.filter(d => !runDaysUsed.has(d.dow) && canRun(d) && d.remaining >= need);
@@ -1307,37 +1334,46 @@ if (stageTotal > 0) {
     const fulfilledSubs = new Set();
     plan.forEach(d => { if (d.locked) d.sessions.forEach(s => { if (s.type === 'strength' && s.sub) fulfilledSubs.add(s.sub); }); });
 
-    // 2) Leg day — never the day before a run; ideally same day as / day after a run
-    if (!fulfilledSubs.has('leg')) {
-      const legCandidates = plan.filter(d => canStrength(d) && d.remaining >= STRENGTH_MIN && !dayBeforeIsRun(d));
+    // 2) Leg day — never the day before a run (i.e. never when the NEXT day already has
+    // a run); ideally the same day as a run, or the day right after one.
+    if (!fulfilledSubs.has('leg') && !excluded.leg) {
+      const legCandidates = plan.filter(d => canStrength(d) && d.remaining >= strengthMin && !nextDayHasRun(d));
       const legDay = legCandidates.find(d => d.sessions.some(s=>s.type==='run'))
-        || legCandidates.find(d => { const i=plan.indexOf(d); return i>0 && plan[i-1].sessions.some(s=>s.type==='run'); })
+        || legCandidates.find(d => prevDayHasRun(d))
         || legCandidates.find(d => d.sessions.length===0)
         || legCandidates[0];
-      if (legDay) { legDay.sessions.push({type:'strength', sub:'leg', label:'Pierna', estMin:STRENGTH_MIN, status:'pending'}); legDay.remaining -= STRENGTH_MIN; }
+      if (legDay) { legDay.sessions.push({type:'strength', sub:'leg', label:'Pierna', estMin:strengthMin, status:'pending'}); legDay.remaining -= strengthMin; }
       else dropped.push('Pierna (ningún día de gimnasio libre que no sea la víspera de una carrera)');
     }
 
-    // 3) Empuje y tirón
+    // 3) Empuje y tirón — evita juntarlos el mismo día salvo que no quede otra opción
     [['push','Empuje'],['pull','Tirón']].forEach(([sub, label]) => {
-      if (fulfilledSubs.has(sub)) return;
-      const cand = plan.filter(d => canStrength(d) && d.remaining >= STRENGTH_MIN).sort((a,b)=>a.sessions.length-b.sessions.length);
-      const pick = cand[0];
-      if (pick) { pick.sessions.push({type:'strength', sub, label, estMin:STRENGTH_MIN, status:'pending'}); pick.remaining -= STRENGTH_MIN; }
-      else dropped.push(label);
+      if (fulfilledSubs.has(sub) || excluded[sub]) return;
+      const otherSub = sub === 'push' ? 'pull' : 'push';
+      const cand = plan.filter(d => canStrength(d) && d.remaining >= strengthMin).sort((a,b)=>a.sessions.length-b.sessions.length);
+      const withoutOther = cand.filter(d => !d.sessions.some(s => s.sub === otherSub));
+      let pick = withoutOther[0];
+      let combined = false;
+      if (!pick && cand[0]) { pick = cand[0]; combined = true; }
+      if (pick) {
+        pick.sessions.push({type:'strength', sub, label, estMin:strengthMin, status:'pending'});
+        pick.remaining -= strengthMin;
+        if (combined) notes.push(`Empuje y tirón han tenido que ir el mismo día (${fmtDateShort(pick.date)}) — no quedaba otro hueco esta semana.`);
+      } else dropped.push(label);
     });
 
     // 4) Bici Z2 — relleno, preferiblemente tras un día de pesas, máx. 2 a la semana en total
-    const doneBikeCount = plan.reduce((n,d) => n + (d.locked ? d.sessions.filter(s=>s.type==='bike').length : 0), 0);
-    let bikeSlots = Math.max(0, 2 - doneBikeCount);
-    plan.filter(d => d.remaining >= BIKE_MIN)
-      .sort((a,b) => (a.sessions.some(s=>s.type==='strength')?0:1) - (b.sessions.some(s=>s.type==='strength')?0:1))
-      .forEach(d => {
-        if (bikeSlots <= 0 || d.remaining < BIKE_MIN) return;
-        const mins = Math.min(d.remaining, 45);
-        d.sessions.push({type:'bike', label:'Bici Z2', estMin: mins, status:'pending'});
-        d.remaining -= mins; bikeSlots--;
-      });
+    if (!excluded.bike) {
+      const doneBikeCount = plan.reduce((n,d) => n + (d.locked ? d.sessions.filter(s=>s.type==='bike').length : 0), 0);
+      let bikeSlots = Math.max(0, 2 - doneBikeCount);
+      plan.filter(d => d.remaining >= bikeMin)
+        .sort((a,b) => (a.sessions.some(s=>s.type==='strength')?0:1) - (b.sessions.some(s=>s.type==='strength')?0:1))
+        .forEach(d => {
+          if (bikeSlots <= 0 || d.remaining < bikeMin) return;
+          d.sessions.push({type:'bike', label:'Bici Z2', estMin: bikeMin, status:'pending'});
+          d.remaining -= bikeMin; bikeSlots--;
+        });
+    }
 
     // 5) Día de descanso/movilidad (un día pasado sin actividad ya cuenta como tal)
     if (!plan.some(d => d.sessions.length === 0)) {
@@ -1350,15 +1386,32 @@ if (stageTotal > 0) {
   // ---- Rendering ----
   const STATUS_LABEL = { done:'hecho', pending:'pendiente' };
 
-  function renderPlannerUI(days, owner, result) {
-    document.getElementById('plannerBody').innerHTML = DOW.map((dow, i) => {
+  function renderPlannerUI(norm, owner, result) {
+    const { days, settings, excluded } = norm;
+
+    const settingsRow = owner ? `
+    <div class="planner-settings">
+      <label>Duración fuerza <input type="number" min="10" step="5" data-setting="strengthMin" value="${settings.strengthMin}"> min</label>
+      <label>Duración bici Z2 <input type="number" min="10" step="5" data-setting="bikeMin" value="${settings.bikeMin}"> min</label>
+    </div>
+    <div class="planner-exclude">
+      ${['leg','push','pull','bike'].map(sub => `<label><input type="checkbox" data-exclude="${sub}" ${excluded[sub]?'checked':''}> Sin ${EXCLUDE_LABEL[sub]} esta semana</label>`).join('')}
+    </div>` : (() => {
+      const excludedList = ['leg','push','pull','bike'].filter(sub => excluded[sub]).map(sub => EXCLUDE_LABEL[sub]);
+      return `<div class="planner-settings">Fuerza: ${settings.strengthMin} min · Bici Z2: ${settings.bikeMin} min${excludedList.length ? ' · Esta semana sin: ' + excludedList.join(', ') : ''}</div>`;
+    })();
+
+    const rows = DOW.map((dow, i) => {
       const date = addDays(weekStart, i);
       const d = days[dow];
       const planDay = result.plan[i];
       const isPast = date < todayStr;
       const editable = owner && planDay.schedulable;
       const assignedText = planDay.sessions.length
-        ? planDay.sessions.map(s => `${s.label}${s.status ? ' ('+STATUS_LABEL[s.status]+')' : ''}`).join(' + ')
+        ? planDay.sessions.map(s => {
+            const bits = [s.status ? STATUS_LABEL[s.status] : '', s.coachFallback ? 'según Coach, sin confirmar disponibilidad' : ''].filter(Boolean).join(' · ');
+            return `${s.label}${bits ? ' ('+bits+')' : ''}`;
+          }).join(' + ')
         : (planDay.locked ? '—' : (isPast ? 'Descanso' : (d.avail === 'no' ? '—' : 'Libre')));
       let controls;
       if (editable) {
@@ -1382,6 +1435,8 @@ if (stageTotal > 0) {
         <div class="planner-assigned">${assignedText}</div>
       </div>`;
     }).join('');
+
+    document.getElementById('plannerBody').innerHTML = settingsRow + rows;
 
     const bits = [];
     if (result.moves.length) bits.push(`<div class="insight"><div class="dot neutral"></div><p>${result.moves.map(m=>`Moví <strong>${m.title}</strong> del ${fmtDateShort(m.from)} al ${fmtDateShort(m.to)} — cámbialo también en Garmin Connect.`).join(' ')}</p></div>`);
@@ -1444,7 +1499,7 @@ if (stageTotal > 0) {
         if (!sub && s.type === 'run' && /f[aá]cil|suave/i.test(s.label)) {
           sub = `Objetivo: Z2 del reloj (${z2Low}–${z2High} ppm). Si sube, camina.`;
         }
-        const flags = [s.short ? 'acortada para caber en el hueco' : '', s.moved ? 'movida — cámbialo también en Garmin Connect' : ''].filter(Boolean).join(' · ');
+        const flags = [s.short ? 'acortada para caber en el hueco' : '', s.moved ? 'movida — cámbialo también en Garmin Connect' : '', s.coachFallback ? 'según Coach, sin confirmar disponibilidad' : ''].filter(Boolean).join(' · ');
         return `<div class="tb-main">${s.label}${flags ? ` <span style="font-weight:500;color:var(--text-muted);font-size:11.5px;">(${flags})</span>` : ''}</div>${sub ? `<div class="tb-sub">${sub}</div>` : ''}`;
       }).join('');
     }
@@ -1467,22 +1522,31 @@ if (stageTotal > 0) {
   let isOwnerFlag = false;
 
   function rerender() {
-    const days = normalizeDays(plannerData);
-    const result = computeWeekPlan(days);
-    renderPlannerUI(days, isOwnerFlag, result);
+    const norm = normalizePlannerData(plannerData);
+    const result = computeWeekPlan(norm);
+    renderPlannerUI(norm, isOwnerFlag, result);
     renderTodayCard(result);
   }
   rerender(); // render immediately with defaults so the page is never empty
 
   let saveFn = null;
   document.getElementById('plannerBody').addEventListener('change', async (e) => {
-    const field = e.target.dataset.field, dow = e.target.dataset.dow;
-    if (!field || !dow || !isOwnerFlag) return;
-    const days = normalizeDays(plannerData);
-    days[dow][field] = field === 'minutes' ? Math.max(0, Number(e.target.value) || 0) : e.target.value;
-    plannerData = { days };
+    if (!isOwnerFlag) return;
+    const t = e.target;
+    const norm = normalizePlannerData(plannerData);
+    if (t.dataset.dow && t.dataset.field) {
+      norm.days[t.dataset.dow][t.dataset.field] = t.dataset.field === 'minutes' ? Math.max(0, Number(t.value) || 0) : t.value;
+    } else if (t.dataset.setting) {
+      const fallback = t.dataset.setting === 'strengthMin' ? DEFAULT_STRENGTH_MIN : DEFAULT_BIKE_MIN;
+      norm.settings[t.dataset.setting] = Math.max(5, Number(t.value) || fallback);
+    } else if (t.dataset.exclude) {
+      norm.excluded[t.dataset.exclude] = t.checked;
+    } else {
+      return;
+    }
+    plannerData = norm;
     rerender();
-    if (saveFn) { try { await saveFn(days); } catch (err) { console.error('planner save failed', err); } }
+    if (saveFn) { try { await saveFn(norm); } catch (err) { console.error('planner save failed', err); } }
   });
 
   (async function initCapabilities() {
@@ -1499,7 +1563,7 @@ if (stageTotal > 0) {
       (err) => { console.error('planner onSnapshot error', err); }
     );
     if (isOwnerFlag) {
-      saveFn = async (days) => { await ref.set({ days, updatedAt: new Date().toISOString() }); };
+      saveFn = async (norm) => { await ref.set({ days: norm.days, settings: norm.settings, excluded: norm.excluded, updatedAt: new Date().toISOString() }); };
     } else {
       rerender();
     }

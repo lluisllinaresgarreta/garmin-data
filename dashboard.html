@@ -97,6 +97,7 @@
     .wrap > section.tiles,
     .wrap > footer.note { column-span: all; }
     .wrap > section.card { display: inline-block; width: 100%; break-inside: avoid; margin-bottom: 24px; }
+    .wrap > section.today-card, .wrap > section.planner-card { column-span: all; display: block; }
     .wrap > header.top { margin-bottom: 28px; }
     .wrap > section.tiles { margin-bottom: 28px; }
   }
@@ -287,6 +288,55 @@
   .balance-bar-track { height: 10px; border-radius: 5px; background: var(--surface-sunken); display: flex; overflow: hidden; gap: 2px; }
   .balance-bar-seg { height: 100%; border-radius: 3px; }
 
+  /* Hoy */
+  .today-semaphore {
+    display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 12px; margin-bottom: 16px;
+  }
+  .today-semaphore .dot-big { width: 14px; height: 14px; border-radius: 50%; flex: none; }
+  .today-semaphore .tsm-title { font-size: 16px; font-weight: 700; font-family: "Bricolage Grotesque", system-ui, sans-serif; }
+  .today-semaphore .tsm-sub { font-size: 12.5px; color: var(--text-secondary); margin-top: 2px; }
+  .today-semaphore.good { background: color-mix(in srgb, var(--good) 12%, transparent); }
+  .today-semaphore.warn { background: color-mix(in srgb, var(--warning) 16%, transparent); }
+  .today-semaphore.bad { background: color-mix(in srgb, var(--critical) 12%, transparent); }
+  .today-semaphore.flat { background: var(--surface-sunken); }
+  .dot-big.good { background: var(--good); } .dot-big.warn { background: var(--warning); }
+  .dot-big.bad { background: var(--critical); } .dot-big.flat { background: var(--text-muted); }
+
+  .recovery-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 6px; }
+  @media (max-width: 640px) { .recovery-grid { grid-template-columns: repeat(2, 1fr); } }
+  .recovery-item { background: var(--surface-sunken); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .recovery-item .rl { font-size: 10.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  .recovery-item .rv { font-size: 18px; font-weight: 700; font-family: "Bricolage Grotesque", system-ui, sans-serif; display: flex; align-items: baseline; gap: 5px; margin-top: 2px; }
+  .recovery-item .rd { font-size: 12px; font-weight: 700; }
+  .recovery-item .rd.up { color: var(--good); } .recovery-item .rd.down { color: var(--critical); } .recovery-item .rd.flat { color: var(--text-muted); }
+  .recovery-item .rf { font-size: 10.5px; color: var(--text-muted); margin-top: 3px; }
+
+  .today-block { padding: 12px 0; border-top: 1px solid var(--border); }
+  .today-block:first-of-type { border-top: none; }
+  .today-block .tb-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: 6px; }
+  .today-block .tb-main { font-size: 14px; font-weight: 600; }
+  .today-block .tb-sub { font-size: 12.5px; color: var(--text-secondary); margin-top: 3px; line-height: 1.45; }
+
+  .glucose-row { display: flex; gap: 16px; flex-wrap: wrap; opacity: 0.6; }
+  .glucose-row .g-item { font-size: 12px; color: var(--text-muted); }
+  .glucose-note { font-size: 11px; color: var(--text-muted); margin-top: 6px; font-style: italic; }
+
+  /* Planificador semanal */
+  .planner-body { display: flex; flex-direction: column; }
+  .planner-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .planner-row:last-child { border-bottom: none; }
+  .planner-row.is-today { background: var(--surface-sunken); margin: 0 -20px; padding: 9px 20px; border-radius: 8px; }
+  .planner-day { width: 84px; flex: none; font-size: 13px; font-weight: 600; }
+  .planner-day .dd { font-size: 10.5px; color: var(--text-muted); font-weight: 500; }
+  .planner-select, .planner-input {
+    font: inherit; font-size: 12.5px; background: var(--surface-sunken); color: var(--text-primary);
+    border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 8px;
+  }
+  .planner-input { width: 62px; }
+  .planner-assigned { flex: 1 1 160px; min-width: 140px; font-size: 12px; color: var(--text-secondary); }
+  .planner-readonly-val { font-size: 12.5px; color: var(--text-secondary); }
+  .planner-owner-note { font-size: 11px; color: var(--text-muted); margin-top: 10px; }
+
   /* Coach calendar */
   .plan-list { display: flex; flex-direction: column; }
   .plan-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
@@ -396,6 +446,37 @@
       <div class="update-status">Se actualiza sola cada día a las 23:00 · toca para forzarlo</div>
     </div>
   </header>
+
+  <section class="card today-card">
+    <div class="section-title">Hoy</div>
+    <div id="todaySemaphore" class="today-semaphore"></div>
+    <div class="recovery-grid" id="recoveryGrid"></div>
+    <div class="today-block">
+      <div class="tb-label">Sesión de hoy</div>
+      <div id="todaySession"></div>
+    </div>
+    <div class="today-block">
+      <div class="tb-label">Última actividad</div>
+      <div id="todayLastActivity"></div>
+    </div>
+    <div class="today-block">
+      <div class="tb-label">Glucosa nocturna</div>
+      <div class="glucose-row">
+        <span class="g-item">Media: —</span>
+        <span class="g-item">Mínima: —</span>
+        <span class="g-item">Hipos &lt;70: —</span>
+      </div>
+      <div class="glucose-note">Pendiente de conectar Libre 2</div>
+    </div>
+  </section>
+
+  <section class="card planner-card">
+    <div class="section-title">Planificador semanal</div>
+    <div class="section-sub">Indica tu disponibilidad de esta semana y te propongo el reparto de sesiones</div>
+    <div class="planner-body" id="plannerBody"></div>
+    <div class="insights" id="plannerSummary" style="margin-top: 14px;"></div>
+    <div class="planner-owner-note" id="plannerOwnerNote"></div>
+  </section>
 
   <section class="tiles" id="tiles"></section>
 
@@ -1084,4 +1165,310 @@ if (stageTotal > 0) {
 } else {
   document.getElementById('sleepStagesLabel').textContent = '';
 }
+
+// ==================================================================
+// Planificador semanal + Hoy
+// ==================================================================
+(function () {
+  const DOW = ['mon','tue','wed','thu','fri','sat','sun'];
+  const DOW_LABEL = { mon:'Lunes', tue:'Martes', wed:'Miércoles', thu:'Jueves', fri:'Viernes', sat:'Sábado', sun:'Domingo' };
+  const AVAIL_LABEL = { no:'No puedo', gym:'Gimnasio', run:'Correr', both:'Ambos' };
+  const RUN_MIN = 20, STRENGTH_MIN = 40, BIKE_MIN = 20;
+
+  function addDays(dateStr, n) {
+    const d = new Date(dateStr + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0,10);
+  }
+  function isoWeekId(dateStr) {
+    const d = new Date(dateStr + 'T00:00:00');
+    d.setDate(d.getDate() + 4 - (d.getDay() || 7));
+    const yearStart = new Date(d.getFullYear(), 0, 1);
+    const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    return `${d.getFullYear()}-W${String(weekNo).padStart(2,'0')}`;
+  }
+  function trailingAvg(key, n) {
+    const rows = dailyWithData.slice(0, -1); // exclude today
+    const vals = rows.filter(r => r[key] !== '' && r[key] !== undefined && r[key] !== null).slice(-n).map(r => Number(r[key]));
+    if (!vals.length) return null;
+    return vals.reduce((a,b)=>a+b,0) / vals.length;
+  }
+  function deltaChip(current, baseline, higherIsBetter, decimals, unit) {
+    if (current === null || current === undefined || Number.isNaN(current) || baseline === null) {
+      return { arrow: '', cls: 'flat', text: 'sin media de 7d aún' };
+    }
+    const diff = current - baseline;
+    const threshold = Math.max(Math.abs(baseline) * 0.03, 0.05);
+    if (Math.abs(diff) <= threshold) return { arrow: '→', cls: 'flat', text: `≈ media 7d (${fmt(baseline,decimals)}${unit})` };
+    const better = higherIsBetter ? diff > 0 : diff < 0;
+    return {
+      arrow: diff > 0 ? '↑' : '↓',
+      cls: better ? 'up' : 'down',
+      text: `${diff >= 0 ? '+' : ''}${diff.toFixed(decimals)}${unit} vs media 7d`,
+    };
+  }
+
+  const weekEnd = addDays(weekStart, 6);
+  const coachRunsThisWeek = coachPlan.filter(w => w.date >= weekStart && w.date <= weekEnd && w.sport === 'running');
+  const activitiesThisWeek = DATA.activities.filter(a => a.date >= weekStart && a.date <= weekEnd);
+
+  function normalizeDays(pd) {
+    const out = {};
+    DOW.forEach(dow => {
+      const existing = (pd && pd.days && pd.days[dow]) || {};
+      out[dow] = { avail: existing.avail || null, minutes: existing.minutes != null ? existing.minutes : 60 };
+    });
+    return out;
+  }
+
+  // ---- Core scheduler: pure function of (days, coach runs, logged activities) ----
+  function computeWeekPlan(days) {
+    const plan = DOW.map((dow, i) => {
+      const date = addDays(weekStart, i);
+      const avail = days[dow].avail;
+      const minutes = days[dow].minutes || 0;
+      return { dow, date, avail, minutes, remaining: (avail && avail !== 'no') ? minutes : 0, sessions: [] };
+    });
+    const byDate = Object.fromEntries(plan.map(d => [d.date, d]));
+    const dropped = [], moves = [], notes = [];
+    const canRun = d => d.avail === 'run' || d.avail === 'both';
+    const canStrength = d => d.avail === 'gym' || d.avail === 'both';
+    const dayBeforeIsRun = d => { const i = plan.indexOf(d); return i > 0 && plan[i-1].sessions.some(s => s.type === 'run'); };
+
+    // 1) Coach runs — on their own date if possible, else move within the week
+    const runDaysUsed = new Set();
+    coachRunsThisWeek.slice().sort((a,b) => a.date < b.date ? -1 : 1).forEach(run => {
+      const estMin = (run.detail && run.detail.estimated_duration_sec) ? Math.round(run.detail.estimated_duration_sec/60) : 30;
+      const need = Math.min(estMin, RUN_MIN);
+      const own = byDate[run.date];
+      if (own && canRun(own) && own.remaining >= need) {
+        const used = Math.min(estMin, own.remaining);
+        own.sessions.push({ type:'run', label: run.title, estMin: used, short: used < estMin, coachDate: run.date });
+        own.remaining -= used; runDaysUsed.add(own.dow);
+        return;
+      }
+      const candidates = plan.filter(d => !runDaysUsed.has(d.dow) && canRun(d) && d.remaining >= need);
+      const nonConsecutive = candidates.filter(d => {
+        const i = plan.indexOf(d);
+        return !(i > 1 && plan[i-1].sessions.some(s=>s.type==='run') && plan[i-2].sessions.some(s=>s.type==='run'));
+      });
+      const pick = nonConsecutive[0] || candidates[0];
+      if (pick) {
+        const used = Math.min(estMin, pick.remaining);
+        pick.sessions.push({ type:'run', label: run.title, estMin: used, short: used < estMin, coachDate: run.date, moved: true });
+        pick.remaining -= used; runDaysUsed.add(pick.dow);
+        moves.push({ title: run.title, from: run.date, to: pick.date });
+      } else {
+        dropped.push(`Carrera de Coach "${run.title}" (${fmtDateShort(run.date)})`);
+      }
+    });
+
+    // 2) Leg day — never the day before a run; ideally same day as / day after a run
+    const legCandidates = plan.filter(d => canStrength(d) && d.remaining >= STRENGTH_MIN && !dayBeforeIsRun(d));
+    const legDay = legCandidates.find(d => d.sessions.some(s=>s.type==='run'))
+      || legCandidates.find(d => { const i=plan.indexOf(d); return i>0 && plan[i-1].sessions.some(s=>s.type==='run'); })
+      || legCandidates.find(d => d.sessions.length===0)
+      || legCandidates[0];
+    if (legDay) { legDay.sessions.push({type:'strength', sub:'leg', label:'Pierna', estMin:STRENGTH_MIN}); legDay.remaining -= STRENGTH_MIN; }
+    else dropped.push('Pierna (ningún día de gimnasio libre que no sea la víspera de una carrera)');
+
+    // 3) Empuje y tirón
+    ['Empuje','Tirón'].forEach(label => {
+      const cand = plan.filter(d => canStrength(d) && d.remaining >= STRENGTH_MIN).sort((a,b)=>a.sessions.length-b.sessions.length);
+      const pick = cand[0];
+      if (pick) { pick.sessions.push({type:'strength', sub: label==='Empuje'?'push':'pull', label, estMin:STRENGTH_MIN}); pick.remaining -= STRENGTH_MIN; }
+      else dropped.push(label);
+    });
+
+    // 4) Bici Z2 — relleno, preferiblemente tras un día de pesas, máx. 2 huecos
+    let bikeSlots = 0;
+    plan.filter(d => d.remaining >= BIKE_MIN)
+      .sort((a,b) => (a.sessions.some(s=>s.type==='strength')?0:1) - (b.sessions.some(s=>s.type==='strength')?0:1))
+      .forEach(d => {
+        if (bikeSlots >= 2 || d.remaining < BIKE_MIN) return;
+        const mins = Math.min(d.remaining, 45);
+        d.sessions.push({type:'bike', label:'Bici Z2', estMin: mins});
+        d.remaining -= mins; bikeSlots++;
+      });
+
+    // 5) Día de descanso/movilidad
+    if (!plan.some(d => d.sessions.length === 0)) {
+      notes.push('No ha quedado ningún día libre esta semana — intenta reservar al menos uno de descanso o solo movilidad.');
+    }
+
+    // 6) Cruce con actividades ya registradas -> hecho / pendiente / saltado
+    plan.forEach(d => {
+      d.sessions.forEach(s => {
+        const matchType = s.type === 'run' ? 'running' : s.type === 'bike' ? 'indoor_cycling' : 'strength_training';
+        const done = activitiesThisWeek.some(a => a.date === d.date && a.type === matchType);
+        s.status = done ? 'done' : (d.date < todayStr ? 'skipped' : 'pending');
+      });
+    });
+
+    // 7) Recolocar lo saltado en lo que queda de semana
+    const skipped = [];
+    plan.forEach(d => d.sessions.forEach(s => { if (s.status === 'skipped') skipped.push({ ...s, origDate: d.date }); }));
+    const prio = { run:0, strength:1, bike:2 };
+    skipped.sort((a,b) => prio[a.type]-prio[b.type]);
+    skipped.forEach(s => {
+      const need = s.type==='run' ? RUN_MIN : s.type==='strength' ? STRENGTH_MIN : BIKE_MIN;
+      const target = plan.find(d => d.date > todayStr && d.remaining >= need
+        && (s.type==='run' ? canRun(d) : canStrength(d))
+        && !(s.sub==='leg' && dayBeforeIsRun(d)));
+      if (target) {
+        target.sessions.push({ ...s, status:'pending', reinserted:true, from: s.origDate });
+        target.remaining -= need;
+        notes.push(`${s.label} (saltada el ${fmtDateShort(s.origDate)}) → recolocada el ${fmtDateShort(target.date)}.`);
+      } else {
+        dropped.push(`${s.label} — saltada el ${fmtDateShort(s.origDate)} y no cupo en el resto de la semana`);
+      }
+    });
+
+    return { plan, dropped, moves, notes };
+  }
+
+  // ---- Rendering ----
+  const STATUS_LABEL = { done:'hecho', pending:'pendiente', skipped:'saltado' };
+
+  function renderPlannerUI(days, owner, result) {
+    document.getElementById('plannerBody').innerHTML = DOW.map((dow, i) => {
+      const date = addDays(weekStart, i);
+      const d = days[dow];
+      const planDay = result.plan[i];
+      const assignedText = planDay.sessions.length
+        ? planDay.sessions.map(s => `${s.label}${s.status ? ' ('+STATUS_LABEL[s.status]+')' : ''}`).join(' + ')
+        : (d.avail === 'no' ? '—' : 'Libre');
+      const controls = owner ? `
+        <select class="planner-select" data-field="avail" data-dow="${dow}">
+          ${['no','gym','run','both'].map(v => `<option value="${v}" ${d.avail===v?'selected':''}>${AVAIL_LABEL[v]}</option>`).join('')}
+        </select>
+        <input class="planner-input num" type="number" min="0" step="5" data-field="minutes" data-dow="${dow}" value="${d.minutes}"> min
+      ` : `<span class="planner-readonly-val">${d.avail ? AVAIL_LABEL[d.avail] : 'Sin definir'}${d.avail && d.avail!=='no' ? ' · ' + d.minutes + ' min' : ''}</span>`;
+      return `
+      <div class="planner-row${date===todayStr?' is-today':''}">
+        <div class="planner-day">${DOW_LABEL[dow]}<div class="dd">${fmtDateShort(date)}</div></div>
+        ${controls}
+        <div class="planner-assigned">${assignedText}</div>
+      </div>`;
+    }).join('');
+
+    const bits = [];
+    if (result.moves.length) bits.push(`<div class="insight"><div class="dot neutral"></div><p>${result.moves.map(m=>`Moví <strong>${m.title}</strong> del ${fmtDateShort(m.from)} al ${fmtDateShort(m.to)} — cámbialo también en Garmin Connect.`).join(' ')}</p></div>`);
+    if (result.dropped.length) bits.push(`<div class="insight"><div class="dot warning"></div><p>No caben esta semana: <strong>${result.dropped.join(', ')}</strong>.</p></div>`);
+    result.notes.forEach(n => bits.push(`<div class="insight"><div class="dot neutral"></div><p>${n}</p></div>`));
+    if (!bits.length) bits.push(`<div class="insight"><div class="dot good"></div><p>Todo encaja esta semana con la disponibilidad indicada.</p></div>`);
+    document.getElementById('plannerSummary').innerHTML = bits.join('');
+
+    document.getElementById('plannerOwnerNote').textContent = owner
+      ? ''
+      : 'Solo el propietario del panel puede editar la disponibilidad — tú lo ves en modo lectura.';
+  }
+
+  function renderTodayCard(result) {
+    const todayEntry = result.plan.find(d => d.date === todayStr);
+    const readiness = lastReadiness.training_readiness;
+    let sem;
+    if (readiness === '' || readiness === undefined) sem = { cls:'flat', title:'Sin Training Readiness todavía', advice:'Aún no hay dato de hoy.' };
+    else if (readiness >= 60) sem = { cls:'good', title:`Training Readiness ${fmt(readiness,0)} — Verde`, advice:'Entrena lo previsto.' };
+    else if (readiness >= 40) sem = { cls:'warn', title:`Training Readiness ${fmt(readiness,0)} — Amarillo`, advice:'Suaviza: Z2 o técnica.' };
+    else sem = { cls:'bad', title:`Training Readiness ${fmt(readiness,0)} — Rojo`, advice:'Descanso o Z2 muy suave.' };
+
+    const semEl = document.getElementById('todaySemaphore');
+    semEl.className = 'today-semaphore ' + sem.cls;
+    semEl.innerHTML = `<div class="dot-big ${sem.cls}"></div><div><div class="tsm-title">${sem.title}</div><div class="tsm-sub">${sem.advice}</div></div>`;
+
+    const z2Low = ZONE_BOUNDS[1], z2High = ZONE_BOUNDS[2] - 1;
+    const metrics = [
+      { key:'hrv_avg', label:'HRV', unit:' ms', higher:true, dec:0 },
+      { key:'resting_hr', label:'FC reposo', unit:' ppm', higher:false, dec:0 },
+      { key:'sleep_hours', label:'Horas sueño', unit:' h', higher:true, dec:1 },
+      { key:'sleep_score', label:'Sueño', unit:'/100', higher:true, dec:0 },
+    ];
+    document.getElementById('recoveryGrid').innerHTML = metrics.map(m => {
+      const curRaw = last[m.key];
+      const cur = (curRaw === '' || curRaw === undefined) ? null : Number(curRaw);
+      const base = trailingAvg(m.key, 7);
+      const d = deltaChip(cur, base, m.higher, m.dec, m.unit);
+      return `<div class="recovery-item">
+        <div class="rl">${m.label}</div>
+        <div class="rv num">${cur===null?'—':fmt(cur,m.dec)}${cur===null?'':m.unit}<span class="rd ${d.cls}">${d.arrow}</span></div>
+        <div class="rf">${d.text}</div>
+      </div>`;
+    }).join('');
+
+    let sessionHtml;
+    if (!todayEntry || !todayEntry.sessions.length) {
+      sessionHtml = `<div class="tb-main">Día libre</div><div class="tb-sub">No hay ninguna sesión planificada hoy.</div>`;
+    } else {
+      sessionHtml = todayEntry.sessions.map(s => {
+        let sub = '';
+        if (sem.cls === 'bad') sub = `Sugerencia: descanso o Z2 muy suave (${z2Low}–${z2High} ppm) en vez de esto.`;
+        else if (sem.cls === 'warn') {
+          if (s.type === 'strength') sub = 'Suaviza: baja el peso o cámbialo por técnica / Z2.';
+          else if (s.type === 'run') sub = 'Sin forzar tramos opcionales — deja que marque Coach.';
+        }
+        if (!sub && s.type === 'run' && /f[aá]cil|suave/i.test(s.label)) {
+          sub = `Objetivo: Z2 del reloj (${z2Low}–${z2High} ppm). Si sube, camina.`;
+        }
+        const flags = [s.short ? 'acortada para caber en el hueco' : '', s.moved ? 'movida — cámbialo también en Garmin Connect' : ''].filter(Boolean).join(' · ');
+        return `<div class="tb-main">${s.label}${flags ? ` <span style="font-weight:500;color:var(--text-muted);font-size:11.5px;">(${flags})</span>` : ''}</div>${sub ? `<div class="tb-sub">${sub}</div>` : ''}`;
+      }).join('');
+    }
+    document.getElementById('todaySession').innerHTML = sessionHtml;
+
+    const lastAct = DATA.activities[0];
+    if (lastAct) {
+      const meta = CAT_META[lastAct.type] || { label: lastAct.type, icon: '•' };
+      document.getElementById('todayLastActivity').innerHTML = `
+        <div class="tb-main">${lastAct.name}</div>
+        <div class="tb-sub">${fmtDateShort(lastAct.date)} · ${meta.label} · ${fmt(lastAct.duration_min,0)} min${lastAct.avg_hr ? ' · ' + fmt(lastAct.avg_hr,0) + ' ppm' : ''}</div>
+        ${realZoneBar(lastAct.hr_zones)}`;
+    } else {
+      document.getElementById('todayLastActivity').innerHTML = `<div class="tb-sub">Sin actividades registradas.</div>`;
+    }
+  }
+
+  // ---- Capability wiring ----
+  let plannerData = null;
+  let isOwnerFlag = false;
+
+  function rerender() {
+    const days = normalizeDays(plannerData);
+    const result = computeWeekPlan(days);
+    renderPlannerUI(days, isOwnerFlag, result);
+    renderTodayCard(result);
+  }
+  rerender(); // render immediately with defaults so the page is never empty
+
+  let saveFn = null;
+  document.getElementById('plannerBody').addEventListener('change', async (e) => {
+    const field = e.target.dataset.field, dow = e.target.dataset.dow;
+    if (!field || !dow || !isOwnerFlag) return;
+    const days = normalizeDays(plannerData);
+    days[dow][field] = field === 'minutes' ? Math.max(0, Number(e.target.value) || 0) : e.target.value;
+    plannerData = { days };
+    rerender();
+    if (saveFn) { try { await saveFn(days); } catch (err) { console.error('planner save failed', err); } }
+  });
+
+  (async function initCapabilities() {
+    if (!window.claude) return;
+    let db = null, user = null;
+    try { db = await window.claude.use('db'); } catch (e) {}
+    try { user = await window.claude.use('user'); } catch (e) {}
+    if (user) { try { isOwnerFlag = await user.isOwner(); } catch (e) {} }
+    if (!db) { rerender(); return; }
+
+    const ref = db.doc('planner/' + isoWeekId(todayStr));
+    ref.onSnapshot(
+      (snap) => { plannerData = snap.exists ? snap.data() : null; rerender(); },
+      (err) => { console.error('planner onSnapshot error', err); }
+    );
+    if (isOwnerFlag) {
+      saveFn = async (days) => { await ref.set({ days, updatedAt: new Date().toISOString() }); };
+    } else {
+      rerender();
+    }
+  })();
+})();
 </script>

@@ -114,6 +114,16 @@
   }
   .section-sub { font-size: 12.5px; color: var(--text-muted); margin-bottom: 14px; }
 
+  .card details summary {
+    cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  .card details summary::-webkit-details-marker { display: none; }
+  .card details summary::after {
+    content: '▾'; color: var(--text-muted); font-size: 12px; flex: none; transition: transform 0.15s;
+  }
+  .card details[open] summary::after { transform: rotate(180deg); }
+  .card details:not([open]) summary { margin-bottom: 0; }
+
   /* Stat tiles */
   .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
   @media (max-width: 720px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
@@ -421,11 +431,13 @@
   </section>
 
   <section class="card">
-    <div class="section-title">Fuerza — detalle de series</div>
-    <div class="section-sub" id="strengthDetailSub">Sets, repeticiones y peso de tus últimas sesiones</div>
-    <div id="strengthSessions"></div>
-    <div class="track-note" style="margin-top:10px;">Volumen total (peso × reps) por grupo muscular, últimas sesiones</div>
-    <div id="groupVolume" style="margin-top:8px;"></div>
+    <details>
+      <summary class="section-title">Fuerza — detalle de series</summary>
+      <div class="section-sub" id="strengthDetailSub" style="margin-top:6px;">Sets, repeticiones y peso de tus últimas sesiones</div>
+      <div id="strengthSessions"></div>
+      <div class="track-note" style="margin-top:10px;">Volumen total (peso × reps) por grupo muscular, últimas sesiones</div>
+      <div id="groupVolume" style="margin-top:8px;"></div>
+    </details>
   </section>
 
   <section class="card">

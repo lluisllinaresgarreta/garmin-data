@@ -1183,7 +1183,7 @@ if (stageTotal > 0) {
 (function () {
   const DOW = ['mon','tue','wed','thu','fri','sat','sun'];
   const DOW_LABEL = { mon:'Lunes', tue:'Martes', wed:'Miércoles', thu:'Jueves', fri:'Viernes', sat:'Sábado', sun:'Domingo' };
-  const AVAIL_LABEL = { no:'No puedo', gym:'Gimnasio', run:'Correr', both:'Ambos' };
+  const AVAIL_LABEL = { no:'No puedo', rest:'Descanso', gym:'Gimnasio', run:'Correr', both:'Ambos' };
   const RUN_MIN = 20;
   const DEFAULT_STRENGTH_MIN = 90, DEFAULT_BIKE_MIN = 30;
   const EXCLUDE_LABEL = { leg: 'Pierna', push: 'Empuje', pull: 'Tirón', bike: 'Bici Z2' };
@@ -1229,7 +1229,7 @@ if (stageTotal > 0) {
     const days = {};
     DOW.forEach(dow => {
       const existing = (pd && pd.days && pd.days[dow]) || {};
-      days[dow] = { avail: existing.avail || null, minutes: existing.minutes != null ? existing.minutes : 60 };
+      days[dow] = { avail: existing.avail || null, minutes: existing.minutes != null ? existing.minutes : 120 };
     });
     const s = (pd && pd.settings) || {};
     const settings = {
@@ -1277,7 +1277,7 @@ if (stageTotal > 0) {
       const schedulable = !locked && date >= todayStr;
       return {
         dow, date, locked, schedulable, avail, minutes,
-        remaining: schedulable && avail && avail !== 'no' ? minutes : 0,
+        remaining: schedulable && avail && avail !== 'no' && avail !== 'rest' ? minutes : 0,
         sessions: locked ? dayActs.map(sessionFromActivity) : [],
       };
     });
@@ -1412,12 +1412,12 @@ if (stageTotal > 0) {
             const bits = [s.status ? STATUS_LABEL[s.status] : '', s.coachFallback ? 'según Coach, sin confirmar disponibilidad' : ''].filter(Boolean).join(' · ');
             return `${s.label}${bits ? ' ('+bits+')' : ''}`;
           }).join(' + ')
-        : (planDay.locked ? '—' : (isPast ? 'Descanso' : (d.avail === 'no' ? '—' : 'Libre')));
+        : (planDay.locked ? '—' : (d.avail === 'rest' ? 'Descanso' : (isPast ? 'Descanso' : (d.avail === 'no' ? '—' : 'Libre'))));
       let controls;
       if (editable) {
         controls = `
         <select class="planner-select" data-field="avail" data-dow="${dow}">
-          ${['no','gym','run','both'].map(v => `<option value="${v}" ${d.avail===v?'selected':''}>${AVAIL_LABEL[v]}</option>`).join('')}
+          ${['no','rest','gym','run','both'].map(v => `<option value="${v}" ${d.avail===v?'selected':''}>${AVAIL_LABEL[v]}</option>`).join('')}
         </select>
         <input class="planner-input num" type="number" min="0" step="5" data-field="minutes" data-dow="${dow}" value="${d.minutes}"> min
       `;
@@ -1426,7 +1426,7 @@ if (stageTotal > 0) {
       } else if (isPast) {
         controls = `<span class="planner-readonly-val">Día pasado</span>`;
       } else {
-        controls = `<span class="planner-readonly-val">${d.avail ? AVAIL_LABEL[d.avail] : 'Sin definir'}${d.avail && d.avail!=='no' ? ' · ' + d.minutes + ' min' : ''}</span>`;
+        controls = `<span class="planner-readonly-val">${d.avail ? AVAIL_LABEL[d.avail] : 'Sin definir'}${d.avail && d.avail!=='no' && d.avail!=='rest' ? ' · ' + d.minutes + ' min' : ''}</span>`;
       }
       return `
       <div class="planner-row${date===todayStr?' is-today':''}">

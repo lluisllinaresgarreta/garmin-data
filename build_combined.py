@@ -95,6 +95,8 @@ def main():
     extras_raw = load_json("activity_extras.json", {})
     weather_raw = load_json("activity_weather.json", {})
     km_splits_raw = load_json("run_km_splits.json", {})
+    glucose_raw = load_json("glucose.json", {"available": False, "reason": "not_fetched"})
+    glucose_by_activity = glucose_raw.get("activities", {}) if glucose_raw.get("available") else {}
     for r in act_records:
         aid = str(r["activity_id"])
         extra = extras_raw.get(aid, {})
@@ -114,6 +116,12 @@ def main():
         r["z2_pace_sec_km"] = split_detail.get("z2_pace_sec_km")
         r["avg_cadence_running"] = split_detail.get("avg_cadence_running")
         r["avg_cadence_total"] = split_detail.get("avg_cadence_total")
+        g = glucose_by_activity.get(aid)
+        r["glucose_start_mgdl"] = g.get("glucose_start_mgdl") if g else None
+        r["glucose_start_time"] = g.get("glucose_start_time") if g else None
+        r["glucose_post_mgdl"] = g.get("glucose_post_mgdl") if g else None
+        r["glucose_post_time"] = g.get("glucose_post_time") if g else None
+        r["post_workout_hypos"] = g.get("post_workout_hypos") if g else []
 
     daily = daily.sort_values("date")
     daily_records = daily.fillna("").to_dict(orient="records")
@@ -287,7 +295,8 @@ def main():
         })
     run_trends = run_trends[-12:]
 
-    glucose = load_json("glucose.json", {"available": False, "reason": "not_fetched"})
+    # Per-activity detail already merged above; keep only the general summary here.
+    glucose = {k: v for k, v in glucose_raw.items() if k != "activities"}
 
     out = {
         "activities": act_records,

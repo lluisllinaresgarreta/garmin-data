@@ -39,6 +39,7 @@ def fetch_activities(client: Garmin, days: int) -> pd.DataFrame:
             "activity_id": a.get("activityId"),
             "workout_id": a.get("workoutId"),
             "date": start,
+            "start_time": a.get("startTimeLocal"),
             "name": a.get("activityName"),
             "type": a.get("activityType", {}).get("typeKey"),
             "distance_km": round((a.get("distance") or 0) / 1000, 2),

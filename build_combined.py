@@ -287,6 +287,8 @@ def main():
         })
     run_trends = run_trends[-12:]
 
+    glucose = load_json("glucose.json", {"available": False, "reason": "not_fetched"})
+
     out = {
         "activities": act_records,
         "daily": daily_records,
@@ -302,6 +304,7 @@ def main():
         "bodyComposition": body_composition,
         "strengthSessions": strength_sessions,
         "runTrends": run_trends,
+        "glucose": glucose,
     }
     with open(DATA_DIR / "combined.json", "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False)

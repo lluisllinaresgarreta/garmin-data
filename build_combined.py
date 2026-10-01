@@ -255,6 +255,7 @@ def main():
                 "reps": reps,
                 "weight_kg": weight_kg,
                 "volume_kg": round(volume, 1) if volume else None,
+                "muscle_group": group,
             })
         strength_sessions.append({
             "date": session.get("date"),

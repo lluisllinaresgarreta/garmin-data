@@ -557,6 +557,8 @@
     <div class="week-grid" id="weekGrid"></div>
   </section>
 
+  <!-- ---- Bloque Carrera ---- -->
+
   <section class="card">
     <div class="section-title">Camino al 10K</div>
     <div class="section-sub">Tu plan de Garmin Coach: predicción de carrera y prueba de referencia</div>
@@ -579,12 +581,20 @@
   </section>
 
   <section class="card">
-    <div class="section-title">Tu perfil fisiológico</div>
-    <div class="section-sub" id="profileSub">Zonas de FC, umbral y VO2max, según el reloj</div>
-    <div class="profile-grid" id="profileGrid"></div>
-    <div class="zone-scale" id="profileZoneScale"></div>
-    <div class="track-note" id="profileNote"></div>
+    <details>
+      <summary class="section-title">Análisis de carreras</summary>
+      <div class="section-sub" id="runAnalysisSub" style="margin-top:6px;"></div>
+      <div id="runAnalysisList"></div>
+    </details>
   </section>
+
+  <section class="card">
+    <div class="section-title">Tendencias semanales de carrera</div>
+    <div class="section-sub" id="runTrendsSub">Últimas semanas con carreras registradas</div>
+    <div class="charts-row" id="runTrendsCharts"></div>
+  </section>
+
+  <!-- ---- Bloque Fuerza ---- -->
 
   <section class="card">
     <div class="section-title">Fuerza — apoyo, no competencia</div>
@@ -601,6 +611,16 @@
       <div class="track-note" style="margin-top:10px;">Volumen total (peso × reps) por grupo muscular, últimas sesiones</div>
       <div id="groupVolume" style="margin-top:8px;"></div>
     </details>
+  </section>
+
+  <!-- ---- Bloque Bienestar y carga ---- -->
+
+  <section class="card">
+    <div class="section-title">Tu perfil fisiológico</div>
+    <div class="section-sub" id="profileSub">Zonas de FC, umbral y VO2max, según el reloj</div>
+    <div class="profile-grid" id="profileGrid"></div>
+    <div class="zone-scale" id="profileZoneScale"></div>
+    <div class="track-note" id="profileNote"></div>
   </section>
 
   <section class="card">
@@ -639,6 +659,8 @@
     <div class="stage-legend" id="sleepStagesLegend"></div>
   </section>
 
+  <!-- ---- Registro completo ---- -->
+
   <section class="card">
     <details>
       <summary class="section-title">Registro de actividades</summary>
@@ -648,20 +670,6 @@
       <div class="zone-scale" id="zoneScale"></div>
       <div class="zone-note" id="zoneNote"></div>
     </details>
-  </section>
-
-  <section class="card">
-    <details>
-      <summary class="section-title">Análisis de carreras</summary>
-      <div class="section-sub" id="runAnalysisSub" style="margin-top:6px;"></div>
-      <div id="runAnalysisList"></div>
-    </details>
-  </section>
-
-  <section class="card">
-    <div class="section-title">Tendencias semanales de carrera</div>
-    <div class="section-sub" id="runTrendsSub">Últimas semanas con carreras registradas</div>
-    <div class="charts-row" id="runTrendsCharts"></div>
   </section>
 
   <footer class="note">Datos propios descargados de Garmin Connect · Forerunner 265</footer>

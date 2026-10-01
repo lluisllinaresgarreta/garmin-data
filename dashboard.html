@@ -493,6 +493,8 @@
   }
   .update-btn:hover:not(:disabled) { background: var(--surface-sunken); }
   .update-btn:disabled { cursor: default; opacity: 0.55; }
+  .update-btn.secondary { font-size: 11.5px; padding: 6px 12px; opacity: 0.85; margin-top: 8px; }
+  .update-btn.secondary .ic { font-size: 11.5px; }
   .update-btn .ic { font-size: 13px; line-height: 1; transition: transform 0.4s; }
   .update-btn.spinning .ic { animation: spin 0.9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -515,7 +517,11 @@
       <a class="update-btn" href="https://claude.ai/code/routines/trig_01FXHmaxwn1fU8Tz8swPqj2X" target="_blank" rel="noopener">
         <span class="ic">↻</span><span>Actualizar ahora</span>
       </a>
-      <div class="update-status">Se actualiza sola cada día a las 23:00 · toca para forzarlo</div>
+      <div class="update-status">Se actualiza sola cada día a las 23:00 y 7:00 · toca para forzarlo</div>
+      <a class="update-btn secondary" href="https://claude.ai/code/routines/trig_01KuDNwUwiL249Bbfs4aP9VZ" target="_blank" rel="noopener">
+        <span class="ic">🩸</span><span>Sincronizar glucosa</span>
+      </a>
+      <div class="update-status">Solo glucosa, mucho más rápido que la sincronización completa</div>
     </div>
   </header>
 

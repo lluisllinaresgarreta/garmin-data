@@ -216,11 +216,10 @@
   .act-list { display: flex; flex-direction: column; }
   .act-item { border-bottom: 1px solid var(--border); }
   .act-item:last-child { border-bottom: none; }
-  .act-item summary.act-row { gap: 12px; }
+  .act-item summary.act-row { display: block; padding: 11px 0; }
+  .act-item summary.act-row::after { display: none; }
   .act-item[open] summary.act-row { margin-bottom: 0; }
-  .act-row {
-    display: flex; align-items: center; gap: 12px; padding: 11px 0;
-  }
+  .act-top { display: flex; align-items: center; gap: 12px; }
   .act-pill {
     flex: none; width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
     font-size: 15px;
@@ -228,10 +227,12 @@
   .act-main { flex: 1; min-width: 0; }
   .act-main .name { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .act-main .sub { font-size: 11.5px; color: var(--text-muted); }
-  .act-stats { display: flex; gap: 16px; flex: none; }
+  .act-stats { display: flex; align-items: center; gap: 16px; flex: none; }
   .act-stats .s { text-align: right; min-width: 46px; }
   .act-stats .s .v { font-size: 13px; font-weight: 700; font-family: "Bricolage Grotesque", system-ui, sans-serif; }
   .act-stats .s .l { font-size: 9.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .act-chevron { flex: none; color: var(--text-muted); font-size: 12px; transition: transform 0.15s; }
+  .act-item[open] .act-chevron { transform: rotate(180deg); }
   @media (max-width: 560px) { .act-stats { gap: 10px; } .act-stats .s { min-width: 38px; } .act-main .sub { display: none; } }
 
   .zone {
@@ -424,10 +425,18 @@
   .plan-step-chip.interval { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
 
   /* Per-activity real HR time-in-zone bar */
-  .act-zonebar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; margin-top: 6px; gap: 1px; }
+  .act-zonebar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; margin-top: 10px; gap: 1px; }
   .act-zonebar .seg { height: 100%; }
-  .act-extra { display: flex; gap: 10px; margin-top: 2px; flex-wrap: wrap; }
-  .act-extra span { font-size: 10px; color: var(--text-muted); }
+  .act-chips { display: flex; align-items: center; gap: 6px; margin-top: 9px; padding-left: 46px; flex-wrap: wrap; }
+  @media (max-width: 420px) { .act-chips { padding-left: 0; } }
+  .act-chip {
+    font-size: 9.5px; font-weight: 700; padding: 1px 7px; border-radius: 999px;
+    background: var(--surface-sunken); color: var(--text-muted); border: 1px solid var(--border);
+  }
+  .act-chip.warn {
+    background: color-mix(in srgb, var(--critical) 16%, transparent); color: var(--critical);
+    border-color: color-mix(in srgb, var(--critical) 35%, transparent);
+  }
   .te-chip {
     font-size: 9.5px; font-weight: 700; padding: 1px 7px; border-radius: 999px;
     background: color-mix(in srgb, var(--tec) 16%, transparent); color: var(--tec);
@@ -1417,22 +1426,27 @@ document.getElementById('actList').innerHTML = DATA.activities.map(a => {
   return `
   <details class="act-item" data-activity-id="${a.activity_id}">
     <summary class="act-row">
-      <div class="act-pill" style="background:color-mix(in srgb, ${meta.color} 18%, transparent);">${meta.icon}</div>
-      <div class="act-main">
-        <div class="name">${a.name}</div>
-        <div class="sub">${d} · ${meta.label}${dist ? ' · ' + dist : ''}</div>
-        ${extras.length ? `<div class="act-extra">${extras.map(e=>`<span>${e}</span>`).join('')}</div>` : ''}
-        ${evalChips.length ? `<div class="act-extra">${evalChips.join('')}</div>` : ''}
-        ${highEffortEasy ? `<div class="act-extra"><span style="color:var(--critical);">Esfuerzo alto para una sesión que debía ser suave</span></div>` : ''}
-        ${realZoneBar(a.hr_zones)}
+      <div class="act-top">
+        <div class="act-pill" style="background:color-mix(in srgb, ${meta.color} 18%, transparent);">${meta.icon}</div>
+        <div class="act-main">
+          <div class="name">${a.name}</div>
+          <div class="sub">${d} · ${meta.label}${dist ? ' · ' + dist : ''}</div>
+        </div>
+        <div class="act-stats">
+          <div class="s"><div class="v num">${fmt(a.duration_min,0)}</div><div class="l">min</div></div>
+          <div class="s"><div class="v num">${a.avg_hr ? fmt(a.avg_hr,0) : '—'}</div><div class="l">ppm</div></div>
+          <div class="s"><div class="v num">${fmt(a.training_effect_aerobic,1)}</div><div class="l">TE aer.</div></div>
+        </div>
+        <span class="act-chevron">▾</span>
       </div>
-      ${teChip}
-      ${zoneEl}
-      <div class="act-stats">
-        <div class="s"><div class="v num">${fmt(a.duration_min,0)}</div><div class="l">min</div></div>
-        <div class="s"><div class="v num">${a.avg_hr ? fmt(a.avg_hr,0) : '—'}</div><div class="l">ppm</div></div>
-        <div class="s"><div class="v num">${fmt(a.training_effect_aerobic,1)}</div><div class="l">TE aer.</div></div>
+      <div class="act-chips">
+        ${zoneEl}
+        ${teChip}
+        ${extras.map(e=>`<span class="act-chip">${e}</span>`).join('')}
+        ${evalChips.join('')}
+        ${highEffortEasy ? `<span class="act-chip warn">Esfuerzo alto para sesión suave</span>` : ''}
       </div>
+      ${realZoneBar(a.hr_zones)}
     </summary>
     <div class="act-detail"></div>
   </details>`;
@@ -2033,8 +2047,8 @@ if (stageTotal > 0) {
       document.getElementById('todayLastActivity').innerHTML = `
         <div class="tb-main">${lastAct.name}</div>
         <div class="tb-sub">${fmtDateShort(lastAct.date)} · ${meta.label} · ${fmt(lastAct.duration_min,0)} min${lastAct.avg_hr ? ' · ' + fmt(lastAct.avg_hr,0) + ' ppm' : ''}</div>
-        ${lastEvalChips.length ? `<div class="act-extra" style="margin-top:6px;">${lastEvalChips.join('')}</div>` : ''}
-        ${lastHighEffortEasy ? `<div class="act-extra"><span style="color:var(--critical);">Esfuerzo alto para una sesión que debía ser suave</span></div>` : ''}
+        ${lastEvalChips.length ? `<div class="act-chips" style="padding-left:0;margin-top:6px;">${lastEvalChips.join('')}</div>` : ''}
+        ${lastHighEffortEasy ? `<div class="act-chips" style="padding-left:0;"><span class="act-chip warn">Esfuerzo alto para sesión suave</span></div>` : ''}
         ${realZoneBar(lastAct.hr_zones)}`;
     } else {
       document.getElementById('todayLastActivity').innerHTML = `<div class="tb-sub">Sin actividades registradas.</div>`;

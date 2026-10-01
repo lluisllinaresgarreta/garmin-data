@@ -6,7 +6,7 @@ Uso:
 import argparse
 import json
 import os
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -40,6 +40,7 @@ def fetch_activities(client: Garmin, days: int) -> pd.DataFrame:
             "workout_id": a.get("workoutId"),
             "date": start,
             "start_time": a.get("startTimeLocal"),
+            "start_time_gmt": a.get("startTimeGMT"),
             "name": a.get("activityName"),
             "type": a.get("activityType", {}).get("typeKey"),
             "distance_km": round((a.get("distance") or 0) / 1000, 2),
@@ -322,6 +323,9 @@ def fetch_activity_extras(client: Garmin, activities_df: pd.DataFrame) -> dict:
             "run_sec": run_sec,
             "walk_sec": walk_sec,
             "stand_sec": stand_sec,
+            "avg_power_w": summary.get("averagePower"),
+            "max_power_w": summary.get("maxPower"),
+            "avg_speed_kmh": round(summary["averageSpeed"] * 3.6, 1) if summary.get("averageSpeed") else None,
         }
     return extras
 
@@ -350,13 +354,27 @@ CADENCE_DOUBLE = 2
 RUN_CADENCE_THRESHOLD = 130
 
 
-def fetch_run_km_splits(client: Garmin, activities_df: pd.DataFrame, zone2_low, zone2_high, cap: int = 8) -> dict:
-    """Real per-kilometer splits (pace/HR/cadence), HR drift (2nd half vs 1st half) and
-    average pace while in Z2, computed from the raw activity detail time series."""
+def _downsample(seq, target):
+    """Evenly-spaced decimation to at most `target` points, keeping first and last."""
+    if len(seq) <= target:
+        return seq
+    step = (len(seq) - 1) / (target - 1)
+    return [seq[round(i * step)] for i in range(target)]
+
+
+def fetch_activity_series(client: Garmin, activities_df: pd.DataFrame, exercise_sets_by_id: dict,
+                           zone2_low, zone2_high, cap: int = 10) -> dict:
+    """Per-activity detail used by the expandable activity card: downsampled HR/pace/
+    cadence/elevation chart series, a downsampled GPS route, running km-splits/HR-drift/
+    Z2-pace/cadence (as before), and for strength sessions, active-vs-rest time and the
+    average HR during working sets (cross-referenced against exercise_sets' set windows).
+    Limited to the most recent `cap` activities of any type to bound API calls and
+    payload size -- older activities simply have no expandable detail."""
     result = {}
-    runs = activities_df[activities_df["type"] == "running"].sort_values("date", ascending=False).head(cap)
-    for _, row in runs.iterrows():
+    recent = activities_df.sort_values("date", ascending=False).head(cap)
+    for _, row in recent.iterrows():
         activity_id = str(row["activity_id"])
+        activity_type = row.get("type")
         try:
             details = client.get_activity_details(activity_id)
         except Exception:
@@ -367,98 +385,162 @@ def fetch_run_km_splits(client: Garmin, activities_df: pd.DataFrame, zone2_low, 
         i_dist = descriptors.get("sumDistance")
         i_hr = descriptors.get("directHeartRate")
         i_cad = descriptors.get("directRunCadence")
-        if i_t is None or i_dist is None or not points:
+        i_speed = descriptors.get("directSpeed")
+        i_elev = descriptors.get("directElevation")
+        i_lat = descriptors.get("directLatitude")
+        i_lon = descriptors.get("directLongitude")
+        if i_t is None or not points:
             continue
 
         samples = []
         for p in points:
             m = p.get("metrics", [])
-            if len(m) <= max(i_t, i_dist):
+            if i_t >= len(m):
                 continue
-            t, dist = m[i_t], m[i_dist]
-            if t is None or dist is None:
+            t = m[i_t]
+            if t is None:
                 continue
-            hr = m[i_hr] if i_hr is not None and i_hr < len(m) else None
             cad_raw = m[i_cad] if i_cad is not None and i_cad < len(m) else None
-            cad = cad_raw * CADENCE_DOUBLE if cad_raw is not None else None
-            samples.append((t, dist, hr, cad))
+            samples.append({
+                "t": t,
+                "dist": m[i_dist] if i_dist is not None and i_dist < len(m) else None,
+                "hr": m[i_hr] if i_hr is not None and i_hr < len(m) else None,
+                "cad": (cad_raw * CADENCE_DOUBLE) if cad_raw is not None else None,
+                "speed": m[i_speed] if i_speed is not None and i_speed < len(m) else None,
+                "elev": m[i_elev] if i_elev is not None and i_elev < len(m) else None,
+                "lat": m[i_lat] if i_lat is not None and i_lat < len(m) else None,
+                "lon": m[i_lon] if i_lon is not None and i_lon < len(m) else None,
+            })
         if len(samples) < 2:
             continue
 
-        # Per-km splits: bucket by cumulative distance crossing each 1000m mark.
-        km_splits = []
-        bucket_start_t, bucket_start_dist = samples[0][0], samples[0][1]
-        next_km = 1000.0
-        hrs, cads = [], []
-        all_cadences, running_cadences = [], []
-        for t, dist, hr, cad in samples:
-            if hr is not None:
-                hrs.append(hr)
-            if cad is not None:
-                cads.append(cad)
-                all_cadences.append(cad)
-                if cad >= RUN_CADENCE_THRESHOLD:
-                    running_cadences.append(cad)
-            if dist >= next_km:
-                seg_dist = dist - bucket_start_dist
-                seg_t = t - bucket_start_t
-                if seg_dist > 0 and seg_t > 0:
-                    km_splits.append({
-                        "km": len(km_splits) + 1,
-                        "pace_sec_km": round(seg_t / (seg_dist / 1000.0)),
-                        "avg_hr": round(sum(hrs) / len(hrs)) if hrs else None,
-                        "avg_cadence": round(sum(cads) / len(cads)) if cads else None,
-                        "partial": False,
-                    })
-                bucket_start_t, bucket_start_dist = t, dist
-                hrs, cads = [], []
-                next_km += 1000.0
-        # Trailing partial km, if there's meaningful distance left over.
-        last_t, last_dist = samples[-1][0], samples[-1][1]
-        seg_dist = last_dist - bucket_start_dist
-        seg_t = last_t - bucket_start_t
-        if seg_dist > 100 and seg_t > 0:
-            km_splits.append({
-                "km": len(km_splits) + 1,
-                "pace_sec_km": round(seg_t / (seg_dist / 1000.0)),
-                "avg_hr": round(sum(hrs) / len(hrs)) if hrs else None,
-                "avg_cadence": round(sum(cads) / len(cads)) if cads else None,
-                "partial": True,
-                "distance_m": round(seg_dist),
+        entry = {}
+
+        # ---- Running-only: km splits, HR drift, Z2 pace, cadence (unchanged logic) ----
+        if activity_type == "running" and i_dist is not None:
+            km_splits = []
+            bucket_start_t = samples[0]["t"]; bucket_start_dist = samples[0]["dist"] or 0
+            next_km = 1000.0
+            hrs, cads = [], []
+            all_cadences, running_cadences = [], []
+            for s in samples:
+                if s["hr"] is not None:
+                    hrs.append(s["hr"])
+                if s["cad"] is not None:
+                    cads.append(s["cad"]); all_cadences.append(s["cad"])
+                    if s["cad"] >= RUN_CADENCE_THRESHOLD:
+                        running_cadences.append(s["cad"])
+                dist = s["dist"]
+                if dist is not None and dist >= next_km:
+                    seg_dist = dist - bucket_start_dist
+                    seg_t = s["t"] - bucket_start_t
+                    if seg_dist > 0 and seg_t > 0:
+                        km_splits.append({
+                            "km": len(km_splits) + 1,
+                            "pace_sec_km": round(seg_t / (seg_dist / 1000.0)),
+                            "avg_hr": round(sum(hrs) / len(hrs)) if hrs else None,
+                            "avg_cadence": round(sum(cads) / len(cads)) if cads else None,
+                            "partial": False,
+                        })
+                    bucket_start_t, bucket_start_dist = s["t"], dist
+                    hrs, cads = [], []
+                    next_km += 1000.0
+            last_dist = samples[-1]["dist"] or 0
+            seg_dist = last_dist - bucket_start_dist
+            seg_t = samples[-1]["t"] - bucket_start_t
+            if seg_dist > 100 and seg_t > 0:
+                km_splits.append({
+                    "km": len(km_splits) + 1,
+                    "pace_sec_km": round(seg_t / (seg_dist / 1000.0)),
+                    "avg_hr": round(sum(hrs) / len(hrs)) if hrs else None,
+                    "avg_cadence": round(sum(cads) / len(cads)) if cads else None,
+                    "partial": True,
+                    "distance_m": round(seg_dist),
+                })
+
+            hr_drift_pct = None
+            total_t = samples[-1]["t"] - samples[0]["t"]
+            if total_t > 0:
+                mid_t = samples[0]["t"] + total_t / 2
+                first_half = [s["hr"] for s in samples if s["hr"] is not None and s["t"] <= mid_t]
+                second_half = [s["hr"] for s in samples if s["hr"] is not None and s["t"] > mid_t]
+                if first_half and second_half:
+                    avg1 = sum(first_half) / len(first_half)
+                    avg2 = sum(second_half) / len(second_half)
+                    if avg1 > 0:
+                        hr_drift_pct = round((avg2 - avg1) / avg1 * 100, 1)
+
+            z2_dist = z2_time = 0.0
+            for a, b in zip(samples, samples[1:]):
+                if a["hr"] is None or b["hr"] is None or a["dist"] is None or b["dist"] is None:
+                    continue
+                avg_hr = (a["hr"] + b["hr"]) / 2
+                if zone2_low <= avg_hr < zone2_high:
+                    z2_dist += max(0.0, b["dist"] - a["dist"])
+                    z2_time += max(0.0, b["t"] - a["t"])
+            z2_pace_sec_km = round(z2_time / (z2_dist / 1000.0)) if z2_dist > 0 else None
+
+            entry.update({
+                "km_splits": km_splits,
+                "hr_drift_pct": hr_drift_pct,
+                "z2_pace_sec_km": z2_pace_sec_km,
+                "avg_cadence_running": round(sum(running_cadences) / len(running_cadences)) if running_cadences else None,
+                "avg_cadence_total": round(sum(all_cadences) / len(all_cadences)) if all_cadences else None,
             })
 
-        # HR drift: average HR in the 2nd half of elapsed time vs the 1st half.
-        hr_drift_pct = None
-        total_t = samples[-1][0] - samples[0][0]
-        if total_t > 0:
-            mid_t = samples[0][0] + total_t / 2
-            first_half = [s[2] for s in samples if s[2] is not None and s[0] <= mid_t]
-            second_half = [s[2] for s in samples if s[2] is not None and s[0] > mid_t]
-            if first_half and second_half:
-                avg1 = sum(first_half) / len(first_half)
-                avg2 = sum(second_half) / len(second_half)
-                if avg1 > 0:
-                    hr_drift_pct = round((avg2 - avg1) / avg1 * 100, 1)
+        # ---- Strength-only: active/rest time, set count, HR during working sets ----
+        if activity_type == "strength_training":
+            sets = (exercise_sets_by_id.get(activity_id) or {}).get("sets", [])
+            active_sec = sum(s.get("duration") or 0 for s in sets if s.get("setType") == "ACTIVE")
+            rest_sec = sum(s.get("duration") or 0 for s in sets if s.get("setType") == "REST")
+            num_sets = sum(1 for s in sets if s.get("setType") == "ACTIVE")
+            # exercise_sets' startTime is in GMT/UTC, like Garmin's startTimeGMT -- NOT
+            # startTimeLocal, which runs 1-2h off depending on DST and silently throws
+            # every set/sample match off by that much.
+            start_time_raw = row.get("start_time_gmt")
+            set_hrs = []
+            if start_time_raw:
+                try:
+                    activity_start = datetime.strptime(str(start_time_raw)[:19], "%Y-%m-%d %H:%M:%S")
+                    for s in sets:
+                        if s.get("setType") != "ACTIVE" or not s.get("startTime"):
+                            continue
+                        set_start = datetime.strptime(s["startTime"][:19], "%Y-%m-%dT%H:%M:%S")
+                        lo = (set_start - activity_start).total_seconds()
+                        hi = lo + (s.get("duration") or 0)
+                        set_hrs.extend(x["hr"] for x in samples if x["hr"] is not None and lo <= x["t"] <= hi)
+                except ValueError:
+                    pass
+            entry.update({
+                "active_sec": round(active_sec),
+                "rest_sec": round(rest_sec),
+                "num_sets": num_sets,
+                "avg_hr_during_sets": round(sum(set_hrs) / len(set_hrs)) if set_hrs else None,
+            })
 
-        # Average pace while HR was in Z2, from consecutive-sample deltas.
-        z2_dist = z2_time = 0.0
-        for a, b in zip(samples, samples[1:]):
-            hr_a, hr_b = a[2], b[2]
-            if hr_a is None or hr_b is None:
-                continue
-            avg_hr = (hr_a + hr_b) / 2
-            if zone2_low <= avg_hr < zone2_high:
-                z2_dist += max(0.0, b[1] - a[1])
-                z2_time += max(0.0, b[0] - a[0])
-        z2_pace_sec_km = round(z2_time / (z2_dist / 1000.0)) if z2_dist > 0 else None
-
-        result[activity_id] = {
-            "km_splits": km_splits,
-            "hr_drift_pct": hr_drift_pct,
-            "z2_pace_sec_km": z2_pace_sec_km,
-            "avg_cadence_running": round(sum(running_cadences) / len(running_cadences)) if running_cadences else None,
-            "avg_cadence_total": round(sum(all_cadences) / len(all_cadences)) if all_cadences else None,
+        # ---- Chart series (any type): downsampled HR/pace/cadence/elevation over time ----
+        chart = _downsample(samples, 110)
+        entry["chart"] = {
+            "t": [round(s["t"]) for s in chart],
+            "hr": [round(s["hr"]) if s["hr"] is not None else None for s in chart],
+            "pace_sec_km": [round(1000 / s["speed"]) if s["speed"] and s["speed"] > 0.3 else None for s in chart],
+            "cadence": [round(s["cad"]) if s["cad"] is not None else None for s in chart],
+            "elevation_m": [round(s["elev"], 1) if s["elev"] is not None else None for s in chart],
+            "speed_kmh": [round(s["speed"] * 3.6, 1) if s["speed"] is not None else None for s in chart],
         }
+
+        # ---- Route (running/walking with GPS): downsampled lat/lon polyline ----
+        if activity_type in ("running", "walking"):
+            geo = [s for s in samples if s["lat"] is not None and s["lon"] is not None]
+            if len(geo) >= 2:
+                route = _downsample(geo, 80)
+                entry["route"] = [
+                    [round(s["lat"], 5), round(s["lon"], 5), round(s["hr"]) if s["hr"] is not None else None,
+                     round(s["dist"]) if s["dist"] is not None else None]
+                    for s in route
+                ]
+
+        result[activity_id] = entry
     return result
 
 
@@ -548,13 +630,13 @@ def main():
         json.dump(activity_weather, f, ensure_ascii=False, indent=2)
     print(f"  -> {len(activity_weather)} actividades con clima en data/activity_weather.json")
 
-    print("Descargando parciales por km, deriva cardiaca y ritmo en Z2 de las ultimas carreras...")
+    print("Descargando series detalladas (FC/ritmo/cadencia/ruta) de las actividades mas recientes...")
     zones = {z["zone"]: z["low"] for z in profile.get("hr_zone_boundaries", [])}
     zone2_low, zone2_high = zones.get(2, 120), zones.get(3, 140)
-    run_km_splits = fetch_run_km_splits(client, activities_df, zone2_low, zone2_high)
-    with open(DATA_DIR / "run_km_splits.json", "w", encoding="utf-8") as f:
-        json.dump(run_km_splits, f, ensure_ascii=False, indent=2)
-    print(f"  -> {len(run_km_splits)} carreras con analisis detallado en data/run_km_splits.json")
+    activity_series = fetch_activity_series(client, activities_df, exercise_sets, zone2_low, zone2_high)
+    with open(DATA_DIR / "activity_series.json", "w", encoding="utf-8") as f:
+        json.dump(activity_series, f, ensure_ascii=False, indent=2)
+    print(f"  -> {len(activity_series)} actividades con series detalladas en data/activity_series.json")
 
     print("Descargando calendario de entrenos de Garmin Coach...")
     scheduled = fetch_scheduled_workouts(client)

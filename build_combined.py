@@ -94,7 +94,7 @@ def main():
     # Self-evaluation (feel/RPE), Coach compliance, elevation, run/walk/stand time and weather
     extras_raw = load_json("activity_extras.json", {})
     weather_raw = load_json("activity_weather.json", {})
-    km_splits_raw = load_json("run_km_splits.json", {})
+    series_raw = load_json("activity_series.json", {})
     glucose_raw = load_json("glucose.json", {"available": False, "reason": "not_fetched"})
     glucose_by_activity = glucose_raw.get("activities", {}) if glucose_raw.get("available") else {}
     for r in act_records:
@@ -109,13 +109,22 @@ def main():
         r["run_sec"] = extra.get("run_sec") or 0
         r["walk_sec"] = extra.get("walk_sec") or 0
         r["stand_sec"] = extra.get("stand_sec") or 0
+        r["avg_power_w"] = extra.get("avg_power_w")
+        r["max_power_w"] = extra.get("max_power_w")
+        r["avg_speed_kmh"] = extra.get("avg_speed_kmh")
         r["temp_c"] = weather_raw.get(aid, {}).get("temp_c")
-        split_detail = km_splits_raw.get(aid, {})
-        r["km_splits"] = split_detail.get("km_splits") or []
-        r["hr_drift_pct"] = split_detail.get("hr_drift_pct")
-        r["z2_pace_sec_km"] = split_detail.get("z2_pace_sec_km")
-        r["avg_cadence_running"] = split_detail.get("avg_cadence_running")
-        r["avg_cadence_total"] = split_detail.get("avg_cadence_total")
+        series = series_raw.get(aid, {})
+        r["km_splits"] = series.get("km_splits") or []
+        r["hr_drift_pct"] = series.get("hr_drift_pct")
+        r["z2_pace_sec_km"] = series.get("z2_pace_sec_km")
+        r["avg_cadence_running"] = series.get("avg_cadence_running")
+        r["avg_cadence_total"] = series.get("avg_cadence_total")
+        r["active_sec"] = series.get("active_sec")
+        r["rest_sec"] = series.get("rest_sec")
+        r["num_sets"] = series.get("num_sets")
+        r["avg_hr_during_sets"] = series.get("avg_hr_during_sets")
+        r["chart"] = series.get("chart")
+        r["route"] = series.get("route") or []
         g = glucose_by_activity.get(aid)
         r["glucose_start_mgdl"] = g.get("glucose_start_mgdl") if g else None
         r["glucose_start_time"] = g.get("glucose_start_time") if g else None

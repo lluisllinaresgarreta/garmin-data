@@ -1204,17 +1204,61 @@ function wasIntendedEasy(a) {
 // total steps/min) cadence, a chart sample is treated as walking rather than running.
 const RUN_CADENCE_THRESHOLD_JS = 130;
 function activityGlucoseHtml(a) {
-  const hasStart = a.glucose_start_mgdl !== undefined && a.glucose_start_mgdl !== null && a.glucose_start_mgdl !== '';
-  const hasPost = a.glucose_post_mgdl !== undefined && a.glucose_post_mgdl !== null && a.glucose_post_mgdl !== '';
-  if (!hasStart && !hasPost) return '';
-  const parts = [];
-  if (hasStart) parts.push(`${fmt(a.glucose_start_mgdl,0)} mg/dL al empezar (${a.glucose_start_time})`);
-  if (hasPost) parts.push(`${fmt(a.glucose_post_mgdl,0)} mg/dL a los 30 min de acabar (${a.glucose_post_time})`);
+  // Start/end/+2h readings are now shown as labeled points on buildGlucoseChart();
+  // this stays only for the post-workout hypoglycemia callout, which the chart
+  // doesn't cover (it can happen well after the charted +2h window).
   const hypos = a.post_workout_hypos || [];
-  const hypoHtml = hypos.length
-    ? `<span class="hypo-note"> · ${hypos.length} hipo${hypos.length>1?'s':''} después: ${hypos.map(h=>`${fmt(h.value_mgdl,0)} mg/dL a las ${h.time}`).join(', ')}</span>`
-    : '';
-  return `<div class="activity-glucose">🩸 ${parts.join(' → ')}${hypoHtml}</div>`;
+  if (!hypos.length) return '';
+  return `<div class="activity-glucose"><span class="hypo-note">⚠️ ${hypos.length} hipo${hypos.length>1?'s':''} después del entreno: ${hypos.map(h=>`${fmt(h.value_mgdl,0)} mg/dL a las ${h.time}`).join(', ')}</span></div>`;
+}
+function buildGlucoseChart(a) {
+  const gc = a.glucose_chart;
+  if (!gc || !gc.series || gc.series.length < 2) return '';
+  const w = 600, h = 140, padL = 2, padR = 2, padT = 10, padB = 4;
+  const duration = gc.duration_min || 0;
+  const tMin = -30, tMax = duration + 120;
+  const span = (tMax - tMin) || 1;
+  const x = t => padL + ((t - tMin) / span) * (w - padL - padR);
+
+  const RANGE_LOW = 70, RANGE_HIGH = 180;
+  const series = gc.series.slice().sort((p1,p2) => p1.t - p2.t);
+  const vals = series.map(p => p.value_mgdl);
+  const yMin = Math.min(...vals, RANGE_LOW - 10);
+  const yMax = Math.max(...vals, RANGE_HIGH + 10);
+  const y = v => padT + (1 - (v - yMin) / ((yMax - yMin) || 1)) * (h - padT - padB);
+
+  const bandTop = y(Math.min(RANGE_HIGH, yMax));
+  const bandBot = y(Math.max(RANGE_LOW, yMin));
+  const bandSvg = `<rect x="${padL}" y="${bandTop.toFixed(1)}" width="${w-padL-padR}" height="${(bandBot-bandTop).toFixed(1)}" fill="var(--good)" opacity="0.10"/>`;
+
+  const actX0 = x(0), actX1 = x(duration);
+  const actSvg = `<rect x="${actX0.toFixed(1)}" y="${padT}" width="${(actX1-actX0).toFixed(1)}" height="${h-padT-padB}" fill="var(--accent)" opacity="0.12"/>`;
+
+  let path = '';
+  series.forEach(p => { path += `${path===''?'M':'L'}${x(p.t).toFixed(1)},${y(p.value_mgdl).toFixed(1)} `; });
+  const lineSvg = `<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/>`;
+
+  const dots = [];
+  if (gc.start) dots.push({ ...gc.start, t: 0, label: 'Inicio' });
+  if (gc.end) dots.push({ ...gc.end, t: duration, label: 'Fin' });
+  if (gc.post_2h) dots.push({ ...gc.post_2h, t: duration + 120, label: '+2h' });
+  const dotsSvg = dots.map(d => `<circle cx="${x(d.t).toFixed(1)}" cy="${y(d.value_mgdl).toFixed(1)}" r="4" fill="var(--surface-card)" stroke="var(--accent)" stroke-width="2"/><text x="${x(d.t).toFixed(1)}" y="${(y(d.value_mgdl)-8).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--text-secondary)">${fmt(d.value_mgdl,0)}</text>`).join('');
+
+  const legendBits = [
+    `<span><span class="sw" style="background:var(--accent)"></span>Glucosa</span>`,
+    `<span><span class="sw" style="background:var(--good);opacity:.3"></span>Rango objetivo 70–180</span>`,
+    `<span><span class="sw" style="background:var(--accent);opacity:.3"></span>Durante la actividad</span>`,
+  ];
+  const dotCaption = dots.map(d => `${d.label}: ${fmt(d.value_mgdl,0)} mg/dL (${d.time})`).join(' · ');
+
+  return `<div class="act-chart-wrap">
+    <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+      ${bandSvg}${actSvg}${lineSvg}${dotsSvg}
+    </svg>
+    <div class="act-chart-legend">${legendBits.join('')}</div>
+    ${dotCaption ? `<div class="activity-glucose">🩸 ${dotCaption}</div>` : ''}
+    ${gc.partial ? `<div class="act-detail-empty" style="margin-top:4px;">Datos parciales — faltan lecturas de glucosa en parte de este tramo (se completará en próximas sincronizaciones).</div>` : ''}
+  </div>`;
 }
 
 function fmtHMS(totalSec) {
@@ -1418,6 +1462,7 @@ function renderActivityDetail(a) {
     activityComparisonHtml(a),
     buildActivityChart(a),
     (a.type === 'running' || a.type === 'walking') ? buildActivityRoute(a) : '',
+    buildGlucoseChart(a),
     activityGlucoseHtml(a),
   ].filter(Boolean);
   if (!parts.length) return '<div class="act-detail-empty">Sin datos detallados disponibles para esta actividad (solo se guarda detalle de las más recientes en cada sincronización).</div>';
@@ -1566,6 +1611,7 @@ document.getElementById('runAnalysisList').innerHTML = runsWithSplits.map(a => {
       <div class="ra-stat"><div class="rl">Temperatura</div><div class="rv num">${temp}</div></div>
     </div>
     ${coachHtml}
+    ${buildGlucoseChart(a)}
     ${activityGlucoseHtml(a)}
     ${realZoneBar(a.hr_zones)}
     <div class="ra-eval-row">

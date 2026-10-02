@@ -39,6 +39,9 @@ RANGE_LOW = 70.0
 RANGE_HIGH = 180.0
 MATCH_TOLERANCE_MIN = 30
 POST_WORKOUT_HYPO_WINDOW_H = 12
+CHART_PRE_MIN = 30
+CHART_POST_H = 2
+CHART_EDGE_TOLERANCE_MIN = 20
 
 REGIONS = ["EU", "DE", "FR", "EU2", "US", "AE", "AP", "AU", "CA", "JP", "LA", "RU"]
 
@@ -82,6 +85,24 @@ def _nearest_reading(readings, target_dt, tolerance_min=MATCH_TOLERANCE_MIN):
         if diff_min <= tolerance_min and (best_diff is None or diff_min < best_diff):
             best, best_diff = r, diff_min
     return best
+
+
+def _point(reading):
+    if reading is None:
+        return None
+    return {"value_mgdl": round(reading.value_in_mg_per_dl, 1), "time": reading.timestamp.strftime("%H:%M")}
+
+
+def _series_partial(series, duration_min, tolerance_min=CHART_EDGE_TOLERANCE_MIN):
+    """True if the series doesn't reach close enough to either edge of the
+    intended window (30min before start .. 2h after end) -- i.e. some of the
+    window fell outside what LibreLinkUp's ~12h rolling window covered."""
+    if not series:
+        return True
+    expected_start = -CHART_PRE_MIN
+    expected_end = duration_min + CHART_POST_H * 60
+    ts = [p["t"] for p in series]
+    return (min(ts) > expected_start + tolerance_min) or (max(ts) < expected_end - tolerance_min)
 
 
 def fetch_latest(client, patient) -> dict:
@@ -185,12 +206,36 @@ def compute_activity_glucose(readings) -> dict:
             key=lambda e: e["time"],
         )
 
+        # Chart: from 30min before start to 2h after finishing, shaded during the
+        # activity itself, with three highlighted points (start / end / +2h).
+        chart_from = start_dt - timedelta(minutes=CHART_PRE_MIN)
+        chart_to = end_dt + timedelta(hours=CHART_POST_H)
+        at_end = _nearest_reading(readings, end_dt)
+        at_post_2h = _nearest_reading(readings, chart_to)
+        series = sorted(
+            [
+                {"t": round((r.timestamp - start_dt).total_seconds() / 60), "value_mgdl": round(r.value_in_mg_per_dl, 1)}
+                for r in readings
+                if chart_from <= r.timestamp <= chart_to
+            ],
+            key=lambda p: p["t"],
+        )
+        glucose_chart = {
+            "start": _point(at_start),
+            "end": _point(at_end),
+            "post_2h": _point(at_post_2h),
+            "series": series,
+            "duration_min": round(float(duration_min), 1),
+            "partial": _series_partial(series, float(duration_min)),
+        }
+
         out[str(row["activity_id"])] = {
             "glucose_start_mgdl": round(at_start.value_in_mg_per_dl, 1) if at_start else None,
             "glucose_start_time": at_start.timestamp.strftime("%H:%M") if at_start else None,
             "glucose_post_mgdl": round(at_post.value_in_mg_per_dl, 1) if at_post else None,
             "glucose_post_time": at_post.timestamp.strftime("%H:%M") if at_post else None,
             "post_workout_hypos": hypo_events,
+            "glucose_chart": glucose_chart,
         }
     return out
 

@@ -46,7 +46,9 @@ def main():
 
     prev = {}
     for a in data.get("activities", []):
-        if a.get("glucose_start_mgdl") is None and a.get("glucose_post_mgdl") is None:
+        gc = a.get("glucose_chart")
+        has_chart = gc and (gc.get("series") or gc.get("start") or gc.get("end") or gc.get("post_2h"))
+        if a.get("glucose_start_mgdl") is None and a.get("glucose_post_mgdl") is None and not has_chart:
             continue
         prev[str(a["activity_id"])] = {
             "glucose_start_mgdl": a.get("glucose_start_mgdl"),
@@ -54,6 +56,7 @@ def main():
             "glucose_post_mgdl": a.get("glucose_post_mgdl"),
             "glucose_post_time": a.get("glucose_post_time"),
             "post_workout_hypos": a.get("post_workout_hypos") or [],
+            "glucose_chart": gc,
         }
 
     out_path.write_text(json.dumps(prev, ensure_ascii=False, indent=2), encoding="utf-8")

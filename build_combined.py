@@ -131,6 +131,7 @@ def main():
         r["glucose_post_mgdl"] = g.get("glucose_post_mgdl") if g else None
         r["glucose_post_time"] = g.get("glucose_post_time") if g else None
         r["post_workout_hypos"] = g.get("post_workout_hypos") if g else []
+        r["glucose_chart"] = g.get("glucose_chart") if g else None
 
     daily = daily.sort_values("date")
     daily_records = daily.fillna("").to_dict(orient="records")

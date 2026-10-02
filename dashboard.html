@@ -230,9 +230,8 @@
     cursor: pointer; display: block; margin: 14px auto 0;
   }
   .act-load-more:hover { background: var(--surface-card); }
-  .act-list { display: flex; flex-direction: column; }
-  .act-item { border-bottom: 1px solid var(--border); }
-  .act-item:last-child { border-bottom: none; }
+  .act-list { display: flex; flex-direction: column; gap: 8px; }
+  .act-item { border: 1px solid var(--border); border-radius: 10px; padding: 0 14px; background: var(--surface-card); }
   .act-item summary.act-row { display: block; padding: 11px 0; }
   .act-item summary.act-row::after { display: none; }
   .act-item[open] summary.act-row { margin-bottom: 0; }
@@ -382,10 +381,12 @@
   .act-detail-empty { font-size: 12px; color: var(--text-muted); font-style: italic; }
 
   /* Planificador semanal */
-  .planner-body { display: flex; flex-direction: column; }
-  .planner-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
-  .planner-row:last-child { border-bottom: none; }
-  .planner-row.is-today { background: var(--surface-sunken); margin: 0 -20px; padding: 9px 20px; border-radius: 8px; }
+  .planner-body { display: flex; flex-direction: column; gap: 6px; }
+  .planner-row {
+    display: flex; align-items: center; gap: 10px; padding: 9px 12px; flex-wrap: wrap;
+    border: 1px solid var(--border); border-radius: 10px; background: var(--surface-card);
+  }
+  .planner-row.is-today { background: var(--surface-sunken); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
   .planner-day { width: 84px; flex: none; font-size: 13px; font-weight: 600; }
   .planner-day .dd { font-size: 10.5px; color: var(--text-muted); font-weight: 500; }
   .planner-select, .planner-input {
@@ -415,9 +416,11 @@
   .planner-skip-btn:hover { background: var(--surface-card); }
 
   /* Coach calendar */
-  .plan-list { display: flex; flex-direction: column; }
-  .plan-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
-  .plan-row:last-child { border-bottom: none; }
+  .plan-list { display: flex; flex-direction: column; gap: 8px; }
+  .plan-row {
+    display: flex; align-items: center; gap: 12px; padding: 10px 12px; flex-wrap: wrap;
+    border: 1px solid var(--border); border-radius: 10px; background: var(--surface-card);
+  }
   .plan-date { flex: none; width: 42px; text-align: center; }
   .plan-date .d { font-size: 15px; font-weight: 700; font-family: "Bricolage Grotesque", system-ui, sans-serif; line-height: 1.1; }
   .plan-date .m { font-size: 9.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
@@ -432,8 +435,7 @@
   .plan-badge.done { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); }
   .plan-badge.upcoming { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
   .plan-badge.missed { background: color-mix(in srgb, var(--critical) 14%, transparent); color: var(--critical); }
-  .plan-row.is-today { background: var(--surface-sunken); margin: 0 -20px; padding: 10px 20px; border-radius: 8px; }
-  .plan-row { flex-wrap: wrap; }
+  .plan-row.is-today { background: var(--surface-sunken); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
   .plan-steps { flex-basis: 100%; display: flex; gap: 5px; flex-wrap: wrap; margin-top: 7px; padding-left: 54px; }
   .plan-steps.compact { padding-left: 0; }
   .plan-step-chip {
@@ -492,8 +494,11 @@
   .stage-legend .sw { width: 8px; height: 8px; border-radius: 2px; }
 
   /* Run analysis */
-  .run-analysis-card { padding: 16px 0; border-bottom: 1px solid var(--border); }
-  .run-analysis-card:last-child { border-bottom: none; }
+  .run-analysis-card {
+    padding: 16px; margin-bottom: 10px;
+    border: 1px solid var(--border); border-radius: 10px; background: var(--surface-card);
+  }
+  .run-analysis-card:last-child { margin-bottom: 0; }
   .ra-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; flex-wrap: wrap; gap: 6px; }
   .ra-title { font-size: 13.5px; font-weight: 700; }
   .ra-date { font-size: 11.5px; color: var(--text-muted); }
@@ -1535,22 +1540,25 @@ function activityRowHtml(a) {
 
 const ACT_PAGE_SIZE = 5;
 const ACT_LOAD_MORE_STEP = 10;
-let actFilter = 'all';
+let actFilter = 'running';
 let actVisibleCount = ACT_PAGE_SIZE;
 
 function filteredActivities() {
-  if (actFilter === 'running') return DATA.activities.filter(a => a.type === 'running');
-  if (actFilter === 'other') return DATA.activities.filter(a => a.type !== 'running');
-  return DATA.activities;
+  if (actFilter === 'all') return DATA.activities;
+  return DATA.activities.filter(a => a.type === actFilter);
 }
 
 function renderActFilterTabs() {
   const total = DATA.activities.length;
-  const runCount = DATA.activities.filter(a => a.type === 'running').length;
+  const counts = {};
+  DATA.activities.forEach(a => { counts[a.type] = (counts[a.type] || 0) + 1; });
+  // One tab per type actually present, in CAT_META's defined order, plus any
+  // unexpected type not in CAT_META tacked on at the end so nothing is hidden.
+  const knownTypes = Object.keys(CAT_META).filter(t => counts[t]);
+  const otherTypes = Object.keys(counts).filter(t => !CAT_META[t]);
   const tabs = [
     { key: 'all', label: `Todas (${total})` },
-    { key: 'running', label: `Correr (${runCount})` },
-    { key: 'other', label: `Otras (${total - runCount})` },
+    ...[...knownTypes, ...otherTypes].map(t => ({ key: t, label: `${(CAT_META[t] || { label: t }).label} (${counts[t]})` })),
   ];
   document.getElementById('actFilterTabs').innerHTML = tabs.map(t =>
     `<button type="button" class="act-filter-tab${actFilter === t.key ? ' active' : ''}" data-filter="${t.key}">${t.label}</button>`

@@ -213,6 +213,23 @@
   .chart-wrap { position: relative; }
 
   /* Activity list */
+  .act-filter-tabs { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+  .act-filter-tab {
+    font: inherit; font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 999px;
+    background: var(--surface-sunken); color: var(--text-secondary); border: 1px solid var(--border-strong);
+    cursor: pointer; transition: background 0.12s, color 0.12s;
+  }
+  .act-filter-tab:hover { background: var(--surface-card); }
+  .act-filter-tab.active {
+    background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+  .act-load-more {
+    font: inherit; font-size: 12.5px; font-weight: 600; padding: 8px 16px; border-radius: 999px;
+    background: var(--surface-sunken); color: var(--text-secondary); border: 1px solid var(--border-strong);
+    cursor: pointer; display: block; margin: 14px auto 0;
+  }
+  .act-load-more:hover { background: var(--surface-card); }
   .act-list { display: flex; flex-direction: column; }
   .act-item { border-bottom: 1px solid var(--border); }
   .act-item:last-child { border-bottom: none; }
@@ -680,7 +697,9 @@
     <details>
       <summary class="section-title">Registro de actividades</summary>
       <div class="section-sub" id="actSub" style="margin-top:6px;"></div>
+      <div class="act-filter-tabs" id="actFilterTabs"></div>
       <div class="act-list" id="actList"></div>
+      <button type="button" class="act-load-more" id="actLoadMore">Cargar más</button>
       <div class="legend" id="legend"></div>
       <div class="zone-scale" id="zoneScale"></div>
       <div class="zone-note" id="zoneNote"></div>
@@ -1468,8 +1487,7 @@ function renderActivityDetail(a) {
   if (!parts.length) return '<div class="act-detail-empty">Sin datos detallados disponibles para esta actividad (solo se guarda detalle de las más recientes en cada sincronización).</div>';
   return parts.join('');
 }
-document.getElementById('actSub').textContent = `${DATA.activities.length} actividades registradas · toca una para ver el detalle`;
-document.getElementById('actList').innerHTML = DATA.activities.map(a => {
+function activityRowHtml(a) {
   const meta = CAT_META[a.type] || { label: a.type, color: 'var(--text-muted)', icon: '•' };
   const d = a.date.slice(8,10) + '/' + a.date.slice(5,7);
   const dist = a.distance_km > 0 ? fmt(a.distance_km,2) + ' km' : '';
@@ -1513,7 +1531,60 @@ document.getElementById('actList').innerHTML = DATA.activities.map(a => {
     </summary>
     <div class="act-detail"></div>
   </details>`;
-}).join('');
+}
+
+const ACT_PAGE_SIZE = 5;
+const ACT_LOAD_MORE_STEP = 10;
+let actFilter = 'all';
+let actVisibleCount = ACT_PAGE_SIZE;
+
+function filteredActivities() {
+  if (actFilter === 'running') return DATA.activities.filter(a => a.type === 'running');
+  if (actFilter === 'other') return DATA.activities.filter(a => a.type !== 'running');
+  return DATA.activities;
+}
+
+function renderActFilterTabs() {
+  const total = DATA.activities.length;
+  const runCount = DATA.activities.filter(a => a.type === 'running').length;
+  const tabs = [
+    { key: 'all', label: `Todas (${total})` },
+    { key: 'running', label: `Correr (${runCount})` },
+    { key: 'other', label: `Otras (${total - runCount})` },
+  ];
+  document.getElementById('actFilterTabs').innerHTML = tabs.map(t =>
+    `<button type="button" class="act-filter-tab${actFilter === t.key ? ' active' : ''}" data-filter="${t.key}">${t.label}</button>`
+  ).join('');
+}
+
+function renderActList() {
+  const filtered = filteredActivities();
+  const visible = filtered.slice(0, actVisibleCount);
+  document.getElementById('actSub').textContent = filtered.length
+    ? `${visible.length} de ${filtered.length} actividades · toca una para ver el detalle`
+    : 'No hay actividades en esta categoría.';
+  document.getElementById('actList').innerHTML = visible.map(activityRowHtml).join('');
+  const loadMoreBtn = document.getElementById('actLoadMore');
+  const remaining = filtered.length - visible.length;
+  loadMoreBtn.style.display = remaining > 0 ? '' : 'none';
+  if (remaining > 0) loadMoreBtn.textContent = `Cargar más (${remaining} restantes)`;
+}
+
+document.getElementById('actFilterTabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('.act-filter-tab');
+  if (!btn || btn.classList.contains('active')) return;
+  actFilter = btn.dataset.filter;
+  actVisibleCount = ACT_PAGE_SIZE;
+  renderActFilterTabs();
+  renderActList();
+});
+document.getElementById('actLoadMore').addEventListener('click', () => {
+  actVisibleCount += ACT_LOAD_MORE_STEP;
+  renderActList();
+});
+
+renderActFilterTabs();
+renderActList();
 
 // Lazy-render each activity's expanded detail (chart, route, comparison, stats) only the
 // first time it's opened, so 17+ SVG charts/maps are never built unless actually viewed.

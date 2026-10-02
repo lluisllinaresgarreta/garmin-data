@@ -418,11 +418,13 @@
   .plan-row.is-today { background: var(--surface-sunken); margin: 0 -20px; padding: 10px 20px; border-radius: 8px; }
   .plan-row { flex-wrap: wrap; }
   .plan-steps { flex-basis: 100%; display: flex; gap: 5px; flex-wrap: wrap; margin-top: 7px; padding-left: 54px; }
+  .plan-steps.compact { padding-left: 0; }
   .plan-step-chip {
     font-size: 10px; padding: 2px 8px; border-radius: 6px; background: var(--surface-sunken);
     color: var(--text-secondary); border: 1px solid var(--border); font-variant-numeric: tabular-nums;
   }
   .plan-step-chip.interval { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+  .plan-step-chip.pending { font-style: italic; }
 
   /* Per-activity real HR time-in-zone bar */
   .act-zonebar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; margin-top: 10px; gap: 1px; }
@@ -922,7 +924,7 @@ document.getElementById('planSub').textContent = coachPlan.length
   ? 'Entrenos planificados por Garmin Coach y si los has completado'
   : 'Garmin Coach aún no tiene entrenos programados en tu calendario';
 
-const STEP_TYPE_LABEL = { warmup: 'Calent.', cooldown: 'Enfr.', interval: 'Tramo', recovery: 'Recup.', rest: 'Descanso', repeat: 'Repite' };
+const STEP_TYPE_LABEL = { warmup: 'Calent.', cooldown: 'Enfr.', interval: 'Tramo', recovery: 'Recup.', rest: 'Descanso', repeat: 'Repite', other: 'Libre' };
 function stepShortLabel(step) {
   const desc = (step.description || '').toLowerCase();
   if (step.type === 'interval') {
@@ -935,7 +937,12 @@ function stepShortLabel(step) {
   return STEP_TYPE_LABEL[step.type] || step.type || '';
 }
 function fmtStepDuration(step) {
-  if (step.end_condition === 'time' && step.end_value) return `${Math.round(step.end_value / 60)}'`;
+  if (step.end_condition === 'time' && step.end_value) {
+    const sec = step.end_value;
+    if (sec < 60) return `${Math.round(sec)}s`;
+    const min = sec / 60;
+    return `${Number.isInteger(min) ? min : min.toFixed(1)}'`;
+  }
   if (step.end_condition === 'distance' && step.end_value) return `${(step.end_value / 1000).toFixed(1)}km`;
   if (step.end_condition === 'lap.button') return 'hasta lap';
   return '';
@@ -946,16 +953,24 @@ function fmtStepTarget(step) {
   if (step.target_low && step.target_high) return ` · ${fmt(step.target_low,0)}-${fmt(step.target_high,0)}${step.target_unit || ''}`;
   return '';
 }
-function planStepsHtml(detail) {
+// A block of repetitions (e.g. 8 x stride) arrives as a step with its own nested
+// `steps` and an `iterations` count -- render it as "8 × (Rápido 20s + Recup. 45s)"
+// instead of flattening it away or dropping the repeat count.
+function stepNodeHtml(step) {
+  if (step.type === 'repeat' && step.steps && step.steps.length) {
+    const inner = step.steps.map(s => `${stepShortLabel(s)}${fmtStepDuration(s) ? ' ' + fmtStepDuration(s) : ''}${fmtStepTarget(s)}`).join(' + ');
+    return `<span class="plan-step-chip interval">${step.iterations || '?'} × (${inner})</span>`;
+  }
+  const label = stepShortLabel(step);
+  const dur = fmtStepDuration(step);
+  const target = fmtStepTarget(step);
+  const cls = step.type === 'interval' ? ' interval' : '';
+  return `<span class="plan-step-chip${cls}">${label}${dur ? ' ' + dur : ''}${target}</span>`;
+}
+function planStepsHtml(detail, compact) {
   if (!detail || !detail.steps || !detail.steps.length) return '';
-  const chips = detail.steps.map(s => {
-    const label = stepShortLabel(s);
-    const dur = fmtStepDuration(s);
-    const target = fmtStepTarget(s);
-    const cls = s.type === 'interval' ? ' interval' : '';
-    return `<span class="plan-step-chip${cls}">${label}${dur ? ' ' + dur : ''}${target}</span>`;
-  }).join('');
-  return `<div class="plan-steps">${chips}</div>`;
+  const chips = detail.steps.map(stepNodeHtml).join('');
+  return `<div class="plan-steps${compact ? ' compact' : ''}">${chips}</div>`;
 }
 
 document.getElementById('planList').innerHTML = coachPlan.length ? coachPlan.map(w => {
@@ -967,13 +982,16 @@ document.getElementById('planList').innerHTML = coachPlan.length ? coachPlan.map
   if (detail && detail.description) sub = detail.description;
   if (detail && detail.estimated_duration_sec) sub += ` · ${Math.round(detail.estimated_duration_sec / 60)} min`;
   if (detail && detail.estimated_distance_m) sub += ` · ${(detail.estimated_distance_m / 1000).toFixed(1)} km`;
+  const hasSteps = detail && detail.steps && detail.steps.length;
   if (w.status === 'done' && w.avg_hr) {
     sub = `${fmt(w.distance_km, 1)} km · ${fmt(w.duration_min, 0)} min · ${fmt(w.avg_hr, 0)} ppm`;
   } else if (w.status === 'done') {
     sub = w.activity_name || sub;
+  } else if (!hasSteps) {
+    sub = 'Pendiente de concretar por Coach';
   }
   const isToday = w.date === todayStr ? ' is-today' : '';
-  const steps = w.status !== 'done' ? planStepsHtml(detail) : '';
+  const steps = (w.status !== 'done' && hasSteps) ? planStepsHtml(detail) : '';
   return `
   <div class="plan-row${isToday}">
     <div class="plan-date"><div class="d num">${day}</div><div class="m">${month}</div></div>
@@ -1802,6 +1820,7 @@ if (stageTotal > 0) {
         status: run.status === 'missed' ? 'missed' : 'pending',
         origDate: run.date, moved,
         unconfirmedAvail: target.avail == null,
+        detail: run.detail,
       });
       target.remaining = Math.max(0, target.remaining - used);
       if (moved) moves.push({ title: run.title, from: run.date, to: target.date });
@@ -2031,7 +2050,10 @@ if (stageTotal > 0) {
           sub = `Objetivo: Z2 del reloj (${z2Low}–${z2High} ppm). Si sube, camina.`;
         }
         const flags = [s.short ? 'acortada para caber en el hueco' : '', s.moved ? 'movida — mueve también esta sesión en Garmin Connect' : '', s.unconfirmedAvail ? 'según Coach, sin confirmar disponibilidad' : ''].filter(Boolean).join(' · ');
-        return `<div class="tb-main">${s.label}${flags ? ` <span style="font-weight:500;color:var(--text-muted);font-size:11.5px;">(${flags})</span>` : ''}</div>${sub ? `<div class="tb-sub">${sub}</div>` : ''}`;
+        const hasSteps = s.type === 'run' && s.detail && s.detail.steps && s.detail.steps.length;
+        const stepsHtml = hasSteps ? planStepsHtml(s.detail, true) : '';
+        const pendingNote = (s.type === 'run' && !hasSteps) ? `<div class="tb-sub" style="font-style:italic;">Pendiente de concretar por Coach.</div>` : '';
+        return `<div class="tb-main">${s.label}${flags ? ` <span style="font-weight:500;color:var(--text-muted);font-size:11.5px;">(${flags})</span>` : ''}</div>${sub ? `<div class="tb-sub">${sub}</div>` : ''}${stepsHtml}${pendingNote}`;
       }).join('');
     }
     document.getElementById('todaySession').innerHTML = sessionHtml;

@@ -178,10 +178,22 @@ def _add_months(year: int, month: int, offset: int) -> tuple[int, int]:
 
 
 def _step_summary(step: dict) -> dict:
+    """Summarize one workout step. Garmin represents a block of repetitions (e.g.
+    8 x stride) as a RepeatGroupDTO with numberOfIterations and its own nested
+    workoutSteps list -- recurse into those instead of flattening them away."""
+    dto_type = step.get("type")
+    step_type_key = (step.get("stepType") or {}).get("stepTypeKey")
+    if dto_type == "RepeatGroupDTO" or step_type_key == "repeat":
+        children = [_step_summary(s) for s in (step.get("workoutSteps") or [])]
+        return {
+            "type": "repeat",
+            "iterations": step.get("numberOfIterations"),
+            "steps": children,
+        }
     end_cond = (step.get("endCondition") or {}).get("conditionTypeKey")
     target_key = (step.get("targetType") or {}).get("workoutTargetTypeKey")
     return {
-        "type": (step.get("stepType") or {}).get("stepTypeKey"),
+        "type": step_type_key,
         "description": step.get("description"),
         "end_condition": end_cond,
         "end_value": step.get("endConditionValue"),

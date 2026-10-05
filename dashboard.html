@@ -2006,32 +2006,47 @@ if (stageTotal > 0) {
     }
     if (legDay) reservedDates.add(legDay.date);
 
-    // 3) Día de descanso — reservado ANTES de repartir empuje/tirón: preferiblemente la
-    // víspera de la primera sesión de calidad de la semana, o si no hay ninguna, la
-    // víspera del primer día de carrera (el "bloque"). Si ese día no está libre (o ya lo
-    // ocupa pierna), se busca hacia atrás el día disponible más cercano que tampoco sea
-    // ya una carrera ni tenga sesiones.
+    // 3) Día de descanso — un día ya marcado "No puedo"/"Descanso", o un día ya pasado
+    // sin actividad registrada, YA cuenta como descanso completo: si existe al menos uno,
+    // no se reserva ningún otro. Solo si no hay ninguno se busca uno hueco (preferiblemente
+    // la víspera de la primera sesión de calidad de la semana, si no la del primer día de
+    // carrera), y nunca a costa de dejar a empuje o tirón sin ningún día posible cuando sí
+    // hay alternativa.
+    const hasRestDay = plan.some(d => d.avail === 'no' || d.avail === 'rest' || (d.date < todayStr && !d.locked));
     let restDay = null;
-    const firstQualityRace = raceDays.find(r => !r.isEasy);
-    const blockStart = (firstQualityRace || raceDays[0] || {}).date;
-    if (blockStart) {
-      const blockIdx = plan.findIndex(d => d.date === blockStart);
-      for (let i = blockIdx - 1; i >= 0; i--) {
-        const cand = plan[i];
-        if (cand.schedulable && !isRaceDay(cand) && cand.sessions.length === 0) { restDay = cand; break; }
+    if (!hasRestDay) {
+      const strengthNeeded = (fulfilledSubs.has('push') || excluded.push ? 0 : 1) + (fulfilledSubs.has('pull') || excluded.pull ? 0 : 1);
+      const wouldStarve = dateToReserve => {
+        if (strengthNeeded === 0) return false;
+        const excl = new Set([dateToReserve]);
+        if (legDay) excl.add(legDay.date);
+        return baseStrengthCandidates(excl).length < 1;
+      };
+      const firstQualityRace = raceDays.find(r => !r.isEasy);
+      const blockStart = (firstQualityRace || raceDays[0] || {}).date;
+      if (blockStart) {
+        const blockIdx = plan.findIndex(d => d.date === blockStart);
+        for (let i = blockIdx - 1; i >= 0; i--) {
+          const cand = plan[i];
+          if (cand.schedulable && !isRaceDay(cand) && cand.sessions.length === 0 && !wouldStarve(cand.date)) { restDay = cand; break; }
+        }
       }
     }
     if (restDay) reservedDates.add(restDay.date);
 
     // 4) Empuje y tirón — en días distintos entre sí y distintos de pierna/descanso;
     // se intenta que no queden en días consecutivos, cuando el hueco disponible lo permite.
+    // A diferencia de pierna, SÍ pueden ir la víspera de cualquier carrera (también de
+    // calidad) — el margen de 48h/72h es solo para pierna. Como último recurso, si no
+    // cabe en ningún día sin carrera, pueden compartir un día "both" con una carrera si
+    // sobran minutos tras ella (se prioriza la carrera suave sobre la de calidad).
     let pushDay = null, pullDay = null;
     const isAdjacent = (a, b) => Math.abs(plan.indexOf(a) - plan.indexOf(b)) === 1;
     [['push', 'Empuje'], ['pull', 'Tirón']].forEach(([sub, label]) => {
       if (fulfilledSubs.has(sub) || excluded[sub]) return;
       const otherDay = sub === 'push' ? pullDay : pushDay;
       const cand = baseStrengthCandidates(reservedDates).sort((a, b) => a.date < b.date ? -1 : 1);
-      let pick = null, combined = false;
+      let pick = null, combined = false, onRaceDay = false;
       if (otherDay) {
         pick = cand.find(d => !isAdjacent(d, otherDay) && d.date !== otherDay.date)
           || cand.find(d => d.date !== otherDay.date);
@@ -2039,24 +2054,36 @@ if (stageTotal > 0) {
       } else {
         pick = cand[0];
       }
+      if (!pick) {
+        const raceCand = plan.filter(d => d.schedulable && d.avail === 'both' && d.remaining >= strengthMin && !reservedDates.has(d.date) && isRaceDay(d))
+          .sort((a, b) => {
+            const aEasy = !dayHasQualityRun(a), bEasy = !dayHasQualityRun(b);
+            if (aEasy !== bEasy) return aEasy ? -1 : 1;
+            return a.date < b.date ? -1 : 1;
+          });
+        if (raceCand.length) { pick = raceCand[0]; onRaceDay = true; }
+      }
       if (pick) {
         pick.sessions.push({ type: 'strength', sub, label, estMin: strengthMin, status: 'pending' });
         pick.remaining -= strengthMin;
         reservedDates.add(pick.date);
         if (sub === 'push') pushDay = pick; else pullDay = pick;
         if (combined) notes.push(`Empuje y tirón han tenido que ir el mismo día (${fmtDateShort(pick.date)}) — no quedaba otro hueco esta semana.`);
+        if (onRaceDay) notes.push(`${label} el ${fmtDateShort(pick.date)} coincide con una carrera — hazlo después de correr.`);
       } else dropped.push(label);
     });
 
     // 5) Bici tras fuerza — una sugerencia por cada sesión de fuerza recién colocada
     // (mismo día si queda tiempo, si no el día siguiente). Z1 corta tras pierna, Z2 tras
     // torso, o Z2 baja si al día siguiente de la bici hay una sesión de carrera de calidad.
+    // Nunca se añade en un día que ya tiene una carrera.
     if (!excluded.bike) {
       const placedStrength = [];
       if (legDay) placedStrength.push({ day: legDay, sub: 'leg' });
       if (pushDay) placedStrength.push({ day: pushDay, sub: 'push' });
       if (pullDay && pullDay !== pushDay) placedStrength.push({ day: pullDay, sub: 'pull' });
       placedStrength.forEach(({ day, sub }) => {
+        if (isRaceDay(day)) return;
         const i = plan.indexOf(day);
         let target = null;
         if (day.remaining >= bikeMin) target = day;

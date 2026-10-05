@@ -12,37 +12,222 @@ import pandas as pd
 
 DATA_DIR = Path(__file__).parent / "data"
 
-MUSCLE_GROUP_MAP = {
-    "BENCH_PRESS": "Pecho", "CHEST_PRESS": "Pecho", "FLY": "Pecho", "PUSH_UP": "Pecho", "DIP": "Pecho",
-    "ROW": "Espalda", "PULL_UP": "Espalda", "PULLUP": "Espalda", "LAT_PULLDOWN": "Espalda", "PULLDOWN": "Espalda",
-    "DEADLIFT": "Espalda",
-    "SQUAT": "Piernas", "LUNGE": "Piernas", "LEG_PRESS": "Piernas", "LEG_CURL": "Piernas",
-    "LEG_EXTENSION": "Piernas", "LEG_RAISE": "Piernas", "CALF_RAISE": "Piernas", "HIP_RAISE": "Piernas",
-    "HIP_THRUST": "Piernas", "STEP_UP": "Piernas",
-    "SHOULDER_PRESS": "Hombros", "LATERAL_RAISE": "Hombros", "FRONT_RAISE": "Hombros", "SHRUG": "Hombros",
-    "CURL": "Brazos", "TRICEPS_EXTENSION": "Brazos", "TRICEP_EXTENSION": "Brazos",
-    "PLANK": "Core", "CRUNCH": "Core", "SIT_UP": "Core", "CORE": "Core", "RUSSIAN_TWIST": "Core",
-    "WARM_UP": "Calentamiento", "COOL_DOWN": "Enfriamiento", "CARDIO": "Cardio",
+# Exercise name/category code -> Spanish display name. Keyed first by the specific
+# movement code Garmin reports (more precise), falling back to the broader category
+# code below for exercises Garmin didn't resolve to a specific movement.
+EXERCISE_NAME_ES = {
+    # Pecho
+    "DECLINE_BARBELL_BENCH_PRESS": "Press banca declinado",
+    "INCLINE_DUMBBELL_BENCH_PRESS": "Press inclinado con mancuernas",
+    "DECLINE_DUMBBELL_FLYE": "Aperturas declinadas",
+    "CHEST_FLY": "Aperturas de pecho",
+    "BENCH_PRESS": "Press banca",
+    "CHEST_PRESS": "Press de pecho",
+    "PUSH_UP": "Flexiones",
+    "DIP": "Fondos",
+    # Espalda
+    "CLOSE_GRIP_LAT_PULLDOWN": "Jalón agarre cerrado",
+    "STRAIGHT_ARM_PULLDOWN": "Jalón brazos rectos",
+    "FACE_PULL": "Face pull",
+    "LAT_PULLDOWN": "Jalón al pecho",
+    "PULLDOWN": "Jalón",
+    "PULL_UP": "Dominadas",
+    "PULLUP": "Dominadas",
+    "ROW": "Remo",
+    "DEADLIFT": "Peso muerto",
+    "SHRUG": "Encogimiento de hombros",
+    # Brazos
+    "CABLE_OVERHEAD_TRICEPS_EXTENSION": "Extensión tríceps polea sobre la cabeza",
+    "TRICEPS_PRESSDOWN": "Jalón tríceps",
+    "TRICEPS_EXTENSION": "Extensión de tríceps",
+    "TRICEP_EXTENSION": "Extensión de tríceps",
+    "WIDE_GRIP_EZ_BAR_BICEPS_CURL": "Curl bíceps barra Z agarre ancho",
+    "DUMBBELL_HAMMER_CURL": "Curl martillo con mancuernas",
+    "INCLINE_DUMBBELL_BICEPS_CURL": "Curl bíceps inclinado con mancuernas",
+    "CURL": "Curl de bíceps",
+    # Hombros
+    "SHOULDER_PRESS": "Press de hombros",
+    "LATERAL_RAISE": "Elevación lateral",
+    "FRONT_RAISE": "Elevación frontal",
+    # Piernas
+    "BARBELL_SIFF_SQUAT": "Sentadilla Siff con barra",
+    "BELT_SQUAT": "Sentadilla con cinturón",
+    "WEIGHTED_LEG_EXTENSIONS": "Extensión de piernas lastrada",
+    "WEIGHTED_LEG_CURL": "Curl femoral lastrado",
+    "SQUAT": "Sentadilla",
+    "LUNGE": "Zancada",
+    "LEG_PRESS": "Prensa de piernas",
+    "LEG_CURL": "Curl femoral",
+    "LEG_EXTENSION": "Extensión de piernas",
+    "LEG_RAISE": "Elevación de piernas",
+    "CALF_RAISE": "Elevación de gemelos",
+    "HIP_RAISE": "Elevación de cadera",
+    "HIP_THRUST": "Hip thrust",
+    "STEP_UP": "Subida al cajón",
+    # Core
+    "PLANK": "Plancha",
+    "CRUNCH": "Abdominal crunch",
+    "SIT_UP": "Abdominal sit-up",
+    "CORE": "Core",
+    "RUSSIAN_TWIST": "Giro ruso",
 }
 
 
-def muscle_group(category):
-    if not category:
-        return "Otro"
-    cat = category.upper()
-    for key, group in MUSCLE_GROUP_MAP.items():
+def humanize_exercise_code(code):
+    """Fallback for any exercise code we don't have a translation for: turn
+    SOME_CODE into 'Some code' instead of showing the raw Garmin constant."""
+    if not code:
+        return "Ejercicio"
+    words = code.replace("-", "_").split("_")
+    return " ".join(words).capitalize()
+
+
+def exercise_display_name(category, name):
+    key = name or category
+    return EXERCISE_NAME_ES.get(key) or EXERCISE_NAME_ES.get(category or "") or humanize_exercise_code(key)
+
+
+# Fine-grained muscle groups, each exercise contributing 1.0 to its primary
+# group and 0.5 (or another weight) to secondary groups it also works, so
+# "effective sets" per group can sum these weighted contributions rather than
+# just counting raw sets. Checked against the exercise's specific movement
+# NAME first (more precise, and fixes cases where Garmin's broader CATEGORY is
+# wrong — e.g. a leg-extension movement logged under the CRUNCH category),
+# falling back to CATEGORY-level rules for anything not matched by name.
+def _name_muscle_rules(key):
+    def has(*subs):
+        return any(s in key for s in subs)
+    if has("LEG_EXTENSION"):
+        return [("Cuádriceps", 1.0)]
+    if has("LEG_CURL"):
+        return [("Isquios", 1.0)]
+    if has("FACE_PULL"):
+        return [("Hombros", 1.0), ("Espalda", 0.5)]
+    if has("STRAIGHT_ARM_PULLDOWN", "LAT_PULLDOWN", "PULLDOWN"):
+        return [("Espalda", 1.0), ("Bíceps", 0.5)]
+    if has("BENCH_PRESS", "CHEST_PRESS", "PUSH_UP", "DIP"):
+        return [("Pecho", 1.0), ("Tríceps", 0.5), ("Hombros", 0.5)]
+    if has("FLYE", "CHEST_FLY", "FLY"):
+        return [("Pecho", 1.0)]
+    if has("TRICEPS", "PRESSDOWN"):
+        return [("Tríceps", 1.0)]
+    if has("BICEPS_CURL", "HAMMER_CURL", "CURL"):
+        return [("Bíceps", 1.0)]
+    if has("SQUAT"):
+        return [("Cuádriceps", 1.0), ("Glúteo", 0.5)]
+    if has("DEADLIFT"):
+        return [("Isquios", 1.0), ("Glúteo", 1.0), ("Espalda", 0.3)]
+    if has("CALF_RAISE"):
+        return [("Gemelo", 1.0)]
+    if has("HIP_THRUST", "HIP_RAISE"):
+        return [("Glúteo", 1.0), ("Isquios", 0.3)]
+    if has("SHOULDER_PRESS"):
+        return [("Hombros", 1.0), ("Tríceps", 0.5)]
+    if has("LATERAL_RAISE", "FRONT_RAISE"):
+        return [("Hombros", 1.0)]
+    if has("SHRUG"):
+        return [("Espalda", 1.0)]
+    if has("PLANK", "CRUNCH", "SIT_UP", "RUSSIAN_TWIST"):
+        return [("Core", 1.0)]
+    if has("LEG_PRESS", "LUNGE", "STEP_UP"):
+        return [("Cuádriceps", 1.0), ("Glúteo", 0.5)]
+    if has("ROW", "PULL_UP", "PULLUP"):
+        return [("Espalda", 1.0), ("Bíceps", 0.5)]
+    return None
+
+
+_CATEGORY_MUSCLE_RULES = {
+    "BENCH_PRESS": [("Pecho", 1.0), ("Tríceps", 0.5), ("Hombros", 0.5)],
+    "CHEST_PRESS": [("Pecho", 1.0), ("Tríceps", 0.5), ("Hombros", 0.5)],
+    "FLYE": [("Pecho", 1.0)],
+    "PUSH_UP": [("Pecho", 1.0), ("Tríceps", 0.5), ("Hombros", 0.5)],
+    "DIP": [("Pecho", 1.0), ("Tríceps", 0.5)],
+    "ROW": [("Espalda", 1.0), ("Bíceps", 0.5)],
+    "PULL_UP": [("Espalda", 1.0), ("Bíceps", 0.5)],
+    "PULLUP": [("Espalda", 1.0), ("Bíceps", 0.5)],
+    "LAT_PULLDOWN": [("Espalda", 1.0), ("Bíceps", 0.5)],
+    "PULLDOWN": [("Espalda", 1.0), ("Bíceps", 0.5)],
+    "DEADLIFT": [("Isquios", 1.0), ("Glúteo", 1.0), ("Espalda", 0.3)],
+    "SQUAT": [("Cuádriceps", 1.0), ("Glúteo", 0.5)],
+    "LUNGE": [("Cuádriceps", 1.0), ("Glúteo", 0.5)],
+    "LEG_PRESS": [("Cuádriceps", 1.0), ("Glúteo", 0.5)],
+    "LEG_CURL": [("Isquios", 1.0)],
+    "LEG_EXTENSION": [("Cuádriceps", 1.0)],
+    "LEG_RAISE": [("Core", 1.0)],
+    "CALF_RAISE": [("Gemelo", 1.0)],
+    "HIP_RAISE": [("Glúteo", 1.0), ("Isquios", 0.3)],
+    "HIP_THRUST": [("Glúteo", 1.0), ("Isquios", 0.3)],
+    "STEP_UP": [("Cuádriceps", 1.0), ("Glúteo", 0.5)],
+    "SHOULDER_PRESS": [("Hombros", 1.0), ("Tríceps", 0.5)],
+    "LATERAL_RAISE": [("Hombros", 1.0)],
+    "FRONT_RAISE": [("Hombros", 1.0)],
+    "SHRUG": [("Espalda", 1.0)],
+    "CURL": [("Bíceps", 1.0)],
+    "TRICEPS_EXTENSION": [("Tríceps", 1.0)],
+    "TRICEP_EXTENSION": [("Tríceps", 1.0)],
+    "PLANK": [("Core", 1.0)],
+    "CRUNCH": [("Core", 1.0)],
+    "SIT_UP": [("Core", 1.0)],
+    "CORE": [("Core", 1.0)],
+    "RUSSIAN_TWIST": [("Core", 1.0)],
+}
+
+
+def classify_muscles(category, name):
+    """List of (fine muscle group, weight) this exercise works — primary group
+    weight 1.0, secondary groups a fraction of that. Empty list for exercises
+    with no tracked muscle group (warm-up, cool-down, cardio, unrecognized)."""
+    rules = _name_muscle_rules((name or "").upper())
+    if rules is not None:
+        return rules
+    cat = (category or "").upper()
+    for key, rules in _CATEGORY_MUSCLE_RULES.items():
         if key in cat:
-            return group
-    return "Otro"
+            return rules
+    return []
+
+
+PUSH_GROUPS = {"Pecho", "Hombros", "Tríceps"}
+PULL_GROUPS = {"Espalda", "Bíceps"}
+LEG_GROUPS = {"Cuádriceps", "Isquios", "Glúteo", "Gemelo"}
+
+
+def classify_session_type(session_name, muscle_group_sets):
+    name = (session_name or "").lower()
+    if "push" in name or "empuje" in name:
+        return "Push"
+    if "pull" in name or "tirón" in name or "tiron" in name:
+        return "Pull"
+    if "pierna" in name or "leg" in name:
+        return "Pierna"
+    push_total = sum(v for g, v in muscle_group_sets.items() if g in PUSH_GROUPS)
+    pull_total = sum(v for g, v in muscle_group_sets.items() if g in PULL_GROUPS)
+    leg_total = sum(v for g, v in muscle_group_sets.items() if g in LEG_GROUPS)
+    best = max(push_total, pull_total, leg_total)
+    if best <= 0:
+        return "Fuerza"
+    if best == push_total:
+        return "Push"
+    if best == pull_total:
+        return "Pull"
+    return "Pierna"
+
+
+WARMUP_THRESHOLD = 0.6  # a set below 60% of that exercise's max weight this session doesn't count as "effective"
+
+
+def epley_1rm(weight_kg, reps):
+    if weight_kg is None or not reps:
+        return None
+    return weight_kg * (1 + reps / 30)
 
 
 def parse_strength_session(session):
-    """Per-set exercise/weight/reps plus total volume per muscle group for one
+    """Per-exercise sets/best-set/1RM plus effective-sets-per-muscle-group for one
     strength activity's raw exercise_sets.json entry. Shared by the per-activity
-    fields (muscle_group_volume, exercises) and the weekly strengthSessions list,
-    so both stay in sync from a single source of truth."""
-    exercises = []
-    group_volume = {}
+    fields consumed by the dashboard's strength-focused detail view."""
+    order = []
+    by_key = {}
     for s in (session or {}).get("sets", []):
         if s.get("setType") != "ACTIVE":
             continue
@@ -50,22 +235,63 @@ def parse_strength_session(session):
         category = exs[0].get("category") if exs else None
         name = exs[0].get("name") if exs else None
         reps = s.get("repetitionCount")
+        if category == "WARM_UP":
+            continue
+        if category == "UNKNOWN" and not reps:
+            continue
         weight_kg = round(s["weight"] / 1000, 1) if s.get("weight") else None
-        group = muscle_group(category)
-        volume = (reps or 0) * (weight_kg or 0)
-        if group not in ("Calentamiento", "Enfriamiento", "Cardio", "Otro") or volume > 0:
-            group_volume[group] = group_volume.get(group, 0) + volume
+        key = (category, name)
+        if key not in by_key:
+            by_key[key] = {"category": category, "name": name, "sets": []}
+            order.append(key)
+        by_key[key]["sets"].append({"reps": reps, "weight_kg": weight_kg})
+
+    exercises = []
+    group_sets = {}
+    effective_sets_total = 0
+    volume_kg_total = 0.0
+    for key in order:
+        ex = by_key[key]
+        weighted_sets = [s for s in ex["sets"] if s["weight_kg"] is not None]
+        max_weight = max((s["weight_kg"] for s in weighted_sets), default=None)
+        out_sets = []
+        effective_count = 0
+        best_set, best_1rm = None, -1
+        for s in ex["sets"]:
+            warmup = (max_weight is not None and s["weight_kg"] is not None
+                      and s["weight_kg"] < WARMUP_THRESHOLD * max_weight)
+            effective = s["weight_kg"] is not None and not warmup
+            out_sets.append({"reps": s["reps"], "weight_kg": s["weight_kg"], "warmup": warmup})
+            if effective:
+                effective_count += 1
+                volume_kg_total += (s["reps"] or 0) * s["weight_kg"]
+                rm = epley_1rm(s["weight_kg"], s["reps"])
+                if rm is not None and rm > best_1rm:
+                    best_1rm, best_set = rm, s
+        display_name = exercise_display_name(ex["category"], ex["name"])
+        weights = [s["weight_kg"] for s in ex["sets"] if s["weight_kg"] is not None]
         exercises.append({
-            "category": category,
-            "name": name,
-            "reps": reps,
-            "weight_kg": weight_kg,
-            "volume_kg": round(volume, 1) if volume else None,
-            "muscle_group": group,
+            "name": ex["name"] or ex["category"],
+            "category": ex["category"],
+            "display_name": display_name,
+            "sets": out_sets,
+            "weight_min": min(weights) if weights else None,
+            "weight_max": max(weights) if weights else None,
+            "best_set": {"reps": best_set["reps"], "weight_kg": best_set["weight_kg"]} if best_set else None,
+            "one_rm_est": round(best_1rm, 1) if best_set else None,
         })
+        effective_sets_total += effective_count
+        if effective_count:
+            for group, w in classify_muscles(ex["category"], ex["name"]):
+                group_sets[group] = group_sets.get(group, 0) + effective_count * w
+
+    muscle_group_sets = {g: round(v, 1) for g, v in group_sets.items() if v > 0}
     return {
         "exercises": exercises,
-        "group_volume": {g: round(v, 1) for g, v in group_volume.items() if v > 0},
+        "muscle_group_sets": muscle_group_sets,
+        "session_type": classify_session_type(session.get("name"), muscle_group_sets),
+        "effective_sets_total": effective_sets_total,
+        "volume_kg_total": round(volume_kg_total, 1),
     }
 
 
@@ -175,7 +401,27 @@ def main():
         if aid in sets_raw:
             parsed = parse_strength_session(sets_raw[aid])
             r["exercises"] = parsed["exercises"]
-            r["muscle_group_volume"] = parsed["group_volume"]
+            r["muscle_group_sets"] = parsed["muscle_group_sets"]
+            r["session_type"] = parsed["session_type"]
+            r["effective_sets_total"] = parsed["effective_sets_total"]
+            r["volume_kg_total"] = parsed["volume_kg_total"]
+
+    # Personal-record flag per exercise: mark an exercise's one_rm_est as a PR only
+    # if it beats every STRICTLY EARLIER session's best for that same exercise name,
+    # so this needs all strength sessions parsed above before it can compare across
+    # them chronologically (oldest first).
+    strength_records = sorted(
+        (r for r in act_records if r.get("exercises")),
+        key=lambda r: r.get("date") or "",
+    )
+    best_1rm_so_far = {}
+    for r in strength_records:
+        for ex in r["exercises"]:
+            rm = ex.get("one_rm_est")
+            prev_best = best_1rm_so_far.get(ex["name"])
+            ex["is_pr"] = rm is not None and (prev_best is None or rm > prev_best)
+            if rm is not None and (prev_best is None or rm > prev_best):
+                best_1rm_so_far[ex["name"]] = rm
 
     daily = daily.sort_values("date")
     daily_records = daily.fillna("").to_dict(orient="records")
@@ -285,19 +531,6 @@ def main():
         })
     body_composition.sort(key=lambda x: x["date"] or "")
 
-    # Strength sessions: sets/reps/weight + volume per muscle group (parsed once per
-    # activity above and attached to each record; reused here for the weekly list).
-    strength_sessions = []
-    for act_id, session in sets_raw.items():
-        parsed = parse_strength_session(session)
-        strength_sessions.append({
-            "date": session.get("date"),
-            "name": session.get("name"),
-            "exercises": parsed["exercises"],
-            "group_volume": parsed["group_volume"],
-        })
-    strength_sessions.sort(key=lambda x: x["date"] or "", reverse=True)
-
     # Weekly running trends: km, longest run, cadence, avg pace while in Z2 (last 12 weeks)
     run_weeks = {}
     for r in act_records:
@@ -345,7 +578,6 @@ def main():
         "coachPlan": coach_plan,
         "profile": profile,
         "bodyComposition": body_composition,
-        "strengthSessions": strength_sessions,
         "runTrends": run_trends,
         "glucose": glucose,
     }

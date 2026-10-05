@@ -398,6 +398,11 @@
   .act-chart-wrap svg { width: 100%; height: auto; display: block; }
   .act-chart-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 6px; font-size: 10.5px; color: var(--text-secondary); }
   .act-chart-legend .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
+  .act-chart-info {
+    font-size: 12px; color: var(--text-secondary); background: var(--surface-sunken);
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; margin-bottom: 8px;
+    font-variant-numeric: tabular-nums; line-height: 1.4;
+  }
   .act-route-wrap { margin-top: 12px; max-width: 340px; position: relative; }
   .act-map-toggle { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
   .act-map-toggle .act-filter-tab { padding: 7px 12px; font-size: 11.5px; }
@@ -1331,12 +1336,12 @@ function buildGlucoseChart(a) {
 
   const chartId = 'gc' + Math.random().toString(36).slice(2,8);
   const html = `<div class="act-chart-wrap">
+    <div class="act-chart-info" id="${chartId}-tip">Pasa el cursor o el dedo por el gráfico para ver cada lectura</div>
     <svg viewBox="0 0 ${w} ${h}" id="${chartId}">
       ${bandSvg}${refSvg}${actSvg}${lineSvg}${yAxisSvg}${xAxisSvg}${dotsSvg}
       <line class="chart-hover-line" id="${chartId}-hl" x1="0" x2="0" y1="${padT}" y2="${h-padB}"/>
       <circle class="chart-hover-dot" id="${chartId}-hd" r="4"/>
     </svg>
-    <div class="chart-tip" id="${chartId}-tip"></div>
     <div class="act-chart-legend">${legendBits.join('')}</div>
     ${dotCaption ? `<div class="activity-glucose">🩸 ${dotCaption}</div>` : ''}
     ${gc.partial ? `<div class="act-detail-empty" style="margin-top:4px;">Datos parciales — faltan lecturas de glucosa en parte de este tramo (se completará en próximas sincronizaciones).</div>` : ''}
@@ -1357,11 +1362,11 @@ function buildGlucoseChart(a) {
       hl.setAttribute('x1', cx); hl.setAttribute('x2', cx); hl.style.opacity = 1;
       hd.setAttribute('cx', cx); hd.setAttribute('cy', cy); hd.style.opacity = 1;
       tip.textContent = `${best.time} · ${fmt(best.value_mgdl,0)} mg/dL`;
-      tip.style.left = (cx / w * 100) + '%';
-      tip.style.top = (cy / h * 100) + '%';
-      tip.style.opacity = 1;
     });
-    svg.addEventListener('pointerleave', () => { hl.style.opacity = 0; hd.style.opacity = 0; tip.style.opacity = 0; });
+    svg.addEventListener('pointerleave', () => {
+      hl.style.opacity = 0; hd.style.opacity = 0;
+      tip.textContent = 'Pasa el cursor o el dedo por el gráfico para ver cada lectura';
+    });
   });
 
   return html;
@@ -1710,8 +1715,7 @@ function buildActivityAnalysis(a) {
       <line class="chart-hover-line" id="${chartId}-hl" x1="0" x2="0" y1="${padT}" y2="${h-padB}"/>
       <circle class="chart-hover-dot" id="${chartId}-hrd" r="4"/>
       ${havePace ? `<circle class="chart-hover-dot" id="${chartId}-pad" r="4"/>` : ''}
-    </svg>
-    <div class="chart-tip" id="${chartId}-tip"></div>`;
+    </svg>`;
 
   // ---- Perfil de altitud (mismo eje X, sincronizado) ----
   const elevVals = (chart.elevation_m || []).filter(v => v !== null);
@@ -1830,6 +1834,7 @@ function buildActivityAnalysis(a) {
 
     routeBlock = `<div class="act-route-wrap">
       ${mapToggle}
+      <div class="act-chart-info" id="${chartId}-map-tip">Pasa el cursor o el dedo por el mapa o el gráfico para ver cada punto</div>
       <svg viewBox="0 0 ${rw} ${rh}" id="${chartId}-map">
         <g id="${chartId}-map-zone">${segs}</g>
         ${haveWind ? `<g id="${chartId}-map-wind" style="display:none">${segsWind}</g>` : ''}
@@ -1846,7 +1851,6 @@ function buildActivityAnalysis(a) {
         <span><span class="sw" style="background:var(--critical);"></span>Llegada${sameStartEnd?' (= salida)':''}</span>
         ${windLegend}
       </div>` : ''}
-      <div class="chart-tip" id="${chartId}-map-tip"></div>
     </div>`;
     routeCtx = { route, px, py };
   }
@@ -1904,9 +1908,6 @@ function buildActivityAnalysis(a) {
       if (chart.cadence && chart.cadence[idx] !== null) bits.push(`${fmt(chart.cadence[idx],0)} spm`);
       if (chart.elevation_m && chart.elevation_m[idx] !== null) bits.push(`${fmt(chart.elevation_m[idx],0)} m`);
       tip.textContent = bits.join(' · ');
-      tip.style.left = (cx / w * 100) + '%';
-      tip.style.top = (yHr(hrv !== null ? hrv : hrMin) / h * 100) + '%';
-      tip.style.opacity = 1;
 
       if (altSvg && haveAlt && chart.elevation_m[idx] !== null) {
         const yAlt2 = padTAlt + (1 - (chart.elevation_m[idx] - eMin2) / ((eMax2-eMin2)||1)) * (hAlt-padTAlt-padBAlt);
@@ -1919,7 +1920,7 @@ function buildActivityAnalysis(a) {
         if (ri >= 0) {
           const p = routeCtx.route[ri];
           mapD.setAttribute('cx', routeCtx.px(p[1])); mapD.setAttribute('cy', routeCtx.py(p[0])); mapD.style.opacity = 1;
-          if (mapTip) { mapTip.textContent = `${fmt(distKm[idx],2)} km${p[2] ? ' · ' + fmt(p[2],0) + ' ppm' : ''}`; mapTip.style.opacity = 1; }
+          if (mapTip) mapTip.textContent = `${fmt(distKm[idx],2)} km${p[2] ? ' · ' + fmt(p[2],0) + ' ppm' : ''}`;
         }
       }
     }
@@ -1930,16 +1931,22 @@ function buildActivityAnalysis(a) {
       updateHover(Math.round((relX - padL) / (w - padL - padR) * (n - 1)));
     }
     function clearHover() {
-      hl.style.opacity = 0; hrd.style.opacity = 0; if (padDot) padDot.style.opacity = 0; tip.style.opacity = 0;
+      hl.style.opacity = 0; hrd.style.opacity = 0; if (padDot) padDot.style.opacity = 0;
+      tip.textContent = 'Pasa el cursor o el dedo por el gráfico para ver el detalle de cada punto';
       if (altHl) altHl.style.opacity = 0; if (altD) altD.style.opacity = 0;
-      if (mapD) mapD.style.opacity = 0; if (mapTip) mapTip.style.opacity = 0;
+      if (mapD) mapD.style.opacity = 0;
+      if (mapTip) mapTip.textContent = 'Pasa el cursor o el dedo por el mapa o el gráfico para ver cada punto';
     }
     svg.addEventListener('pointermove', e => handleMove(e, svg));
     svg.addEventListener('pointerleave', clearHover);
     if (altSvg) { altSvg.addEventListener('pointermove', e => handleMove(e, altSvg)); altSvg.addEventListener('pointerleave', clearHover); }
   });
 
-  return `<div class="act-chart-wrap">${mainChartSvg}<div class="act-chart-legend">${legendBits.join('')}</div></div>${altBlock}${routeBlock}`;
+  return `<div class="act-chart-wrap">
+    <div class="act-chart-info" id="${chartId}-tip">Pasa el cursor o el dedo por el gráfico para ver el detalle de cada punto</div>
+    ${mainChartSvg}
+    <div class="act-chart-legend">${legendBits.join('')}</div>
+  </div>${altBlock}${routeBlock}`;
 }
 function renderActivityDetail(a) {
   const parts = [

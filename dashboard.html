@@ -403,7 +403,7 @@
     border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; margin-bottom: 8px;
     font-variant-numeric: tabular-nums; line-height: 1.4;
   }
-  .act-route-wrap { margin-top: 12px; max-width: 340px; position: relative; }
+  .act-route-wrap { margin-top: 12px; position: relative; }
   .act-map-toggle { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
   .act-map-toggle .act-filter-tab { padding: 7px 12px; font-size: 11.5px; }
   .act-route-wrap svg { width: 100%; height: auto; display: block; background: var(--surface-sunken); border-radius: 10px; }
@@ -1771,10 +1771,10 @@ function buildActivityAnalysis(a) {
   if (hasRoute) {
     const lats = route.map(p=>p[0]), lons = route.map(p=>p[1]);
     const latMin = Math.min(...lats), latMax = Math.max(...lats), lonMin = Math.min(...lons), lonMax = Math.max(...lons);
-    // .act-route-wrap caps at 340px via CSS, so clamp the viewBox to match what it
-    // will actually render at (same reasoning as chartContainerWidth() elsewhere) —
-    // otherwise the map's in-SVG text (km markers, scale bar) shrinks on narrow phones.
-    const rw = Math.min(chartContainerWidth(), 340), rh = Math.round(rw * 220 / 320), pad = 16;
+    // Same reasoning as chartContainerWidth() elsewhere: size the viewBox to the
+    // actual rendered width so the map fills the card like the other charts instead
+    // of sitting fixed-small, and so in-SVG text doesn't shrink on narrow phones.
+    const rw = chartContainerWidth(), rh = Math.round(rw * 220 / 320), pad = 16;
     const latMid = (latMin + latMax) / 2;
     const lonAspect = Math.cos(latMid * Math.PI / 180) || 1;
     const spanLon = Math.max((lonMax - lonMin) * lonAspect, 0.00005);

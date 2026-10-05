@@ -244,13 +244,18 @@
   .act-main { flex: 1; min-width: 0; }
   .act-main .name { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .act-main .sub { font-size: 11.5px; color: var(--text-muted); }
-  .act-stats { display: flex; align-items: center; gap: 16px; flex: none; }
-  .act-stats .s { text-align: right; min-width: 46px; }
+  .act-stats { display: flex; align-items: center; gap: 14px; flex: none; }
+  .act-stats .s { text-align: right; min-width: 40px; }
   .act-stats .s .v { font-size: 13px; font-weight: 700; font-family: "Bricolage Grotesque", system-ui, sans-serif; }
   .act-stats .s .l { font-size: 9.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
   .act-chevron { flex: none; color: var(--text-muted); font-size: 12px; transition: transform 0.15s; }
   .act-item[open] .act-chevron { transform: rotate(180deg); }
-  @media (max-width: 560px) { .act-stats { gap: 10px; } .act-stats .s { min-width: 38px; } .act-main .sub { display: none; } }
+  @media (max-width: 560px) { .act-stats { gap: 9px; } .act-stats .s { min-width: 34px; } .act-main .sub { display: none; } }
+  @media (max-width: 480px) {
+    .act-top { flex-wrap: wrap; gap: 8px 12px; }
+    .act-pill { order: 1; } .act-main { order: 2; } .act-chevron { order: 3; }
+    .act-stats { order: 4; flex: 1 1 100%; justify-content: flex-end; }
+  }
 
   .zone {
     flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 38px; height: 22px;
@@ -261,7 +266,6 @@
   .zone.z0 { --zc: var(--text-muted); }
   .zone.z1 { --zc: #7a8fa6; } .zone.z2 { --zc: var(--accent); } .zone.z3 { --zc: #1baf7a; }
   .zone.z4 { --zc: #e07a1f; } .zone.z5 { --zc: var(--critical); }
-  @media (max-width: 420px) { .act-stats .s:nth-child(3) { display: none; } }
   .zone-scale { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 10px; font-size: 11.5px; color: var(--text-secondary); align-items: center; }
   .zone-scale .zone { min-width: 30px; height: 20px; font-size: 11px; }
   .zone-note { font-size: 11px; color: var(--text-muted); margin-top: 8px; line-height: 1.45; }
@@ -373,13 +377,27 @@
   .act-compare { font-size: 12px; color: var(--text-secondary); background: var(--surface-sunken); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; margin-bottom: 12px; }
   .act-compare .up { color: var(--good); font-weight: 700; }
   .act-compare .down { color: var(--critical); font-weight: 700; }
-  .act-chart-wrap { margin-bottom: 10px; }
+  .act-chart-wrap { margin-bottom: 10px; position: relative; }
   .act-chart-wrap svg { width: 100%; height: auto; display: block; }
   .act-chart-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 6px; font-size: 10.5px; color: var(--text-secondary); }
   .act-chart-legend .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
-  .act-route-wrap { margin-top: 12px; max-width: 340px; }
+  .act-route-wrap { margin-top: 12px; max-width: 340px; position: relative; }
   .act-route-wrap svg { width: 100%; height: auto; display: block; background: var(--surface-sunken); border-radius: 10px; }
   .act-detail-empty { font-size: 12px; color: var(--text-muted); font-style: italic; }
+
+  .act-splits-wrap { overflow-x: auto; margin-bottom: 12px; -webkit-overflow-scrolling: touch; }
+  .act-splits { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 280px; }
+  .act-splits th { text-align: left; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); font-weight: 600; padding: 4px 8px; white-space: nowrap; }
+  .act-splits td { padding: 5px 8px; border-top: 1px solid var(--border); white-space: nowrap; }
+  .act-splits th:not(:first-child), .act-splits td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .act-splits tr.split-fastest { background: color-mix(in srgb, var(--good) 10%, transparent); }
+  .act-splits tr.split-fastest td:first-child { color: var(--good); font-weight: 700; }
+  .act-splits tr.split-slowest { background: color-mix(in srgb, var(--critical) 8%, transparent); }
+  .act-splits tr.split-slowest td:first-child { color: var(--critical); font-weight: 700; }
+
+  .act-alt-wrap { position: relative; margin: 2px 0 12px; }
+  .act-alt-wrap svg { width: 100%; height: auto; display: block; }
+  .act-alt-label { position: absolute; top: 2px; right: 2px; font-size: 9.5px; color: var(--text-muted); }
 
   /* Planificador semanal */
   .planner-body { display: flex; flex-direction: column; gap: 6px; }
@@ -1239,14 +1257,14 @@ function activityGlucoseHtml(a) {
 function buildGlucoseChart(a) {
   const gc = a.glucose_chart;
   if (!gc || !gc.series || gc.series.length < 2) return '';
-  const w = 600, h = 140, padL = 2, padR = 2, padT = 10, padB = 4;
+  const w = 600, h = 150, padL = 32, padR = 10, padT = 10, padB = 18;
   const duration = gc.duration_min || 0;
   const tMin = -30, tMax = duration + 120;
   const span = (tMax - tMin) || 1;
   const x = t => padL + ((t - tMin) / span) * (w - padL - padR);
 
   const RANGE_LOW = 70, RANGE_HIGH = 180;
-  const series = gc.series.slice().sort((p1,p2) => p1.t - p2.t);
+  const series = decimateArray(gc.series.slice().sort((p1,p2) => p1.t - p2.t), 300);
   const vals = series.map(p => p.value_mgdl);
   const yMin = Math.min(...vals, RANGE_LOW - 10);
   const yMax = Math.max(...vals, RANGE_HIGH + 10);
@@ -1255,9 +1273,12 @@ function buildGlucoseChart(a) {
   const bandTop = y(Math.min(RANGE_HIGH, yMax));
   const bandBot = y(Math.max(RANGE_LOW, yMin));
   const bandSvg = `<rect x="${padL}" y="${bandTop.toFixed(1)}" width="${w-padL-padR}" height="${(bandBot-bandTop).toFixed(1)}" fill="var(--good)" opacity="0.10"/>`;
+  const refSvg = [RANGE_LOW, RANGE_HIGH].map(v => `<line x1="${padL}" x2="${w-padR}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="var(--text-muted)" stroke-width="1" stroke-dasharray="3,3"/><text x="${(padL-4).toFixed(1)}" y="${(y(v)+3).toFixed(1)}" text-anchor="end" font-size="8.5" fill="var(--text-muted)">${v}</text>`).join('');
+  const yTicks = [yMin, yMin + (yMax-yMin)*0.5, yMax].filter(v => Math.abs(v-RANGE_LOW) > 8 && Math.abs(v-RANGE_HIGH) > 8);
+  const yAxisSvg = yTicks.map(v => `<text x="${(padL-4).toFixed(1)}" y="${(y(v)+3).toFixed(1)}" text-anchor="end" font-size="8.5" fill="var(--text-muted)">${fmt(v,0)}</text>`).join('');
 
   const actX0 = x(0), actX1 = x(duration);
-  const actSvg = `<rect x="${actX0.toFixed(1)}" y="${padT}" width="${(actX1-actX0).toFixed(1)}" height="${h-padT-padB}" fill="var(--accent)" opacity="0.12"/>`;
+  const actSvg = `<rect x="${actX0.toFixed(1)}" y="${padT}" width="${(actX1-actX0).toFixed(1)}" height="${h-padT-padB}" fill="var(--accent)" opacity="0.1"/>`;
 
   let path = '';
   series.forEach(p => { path += `${path===''?'M':'L'}${x(p.t).toFixed(1)},${y(p.value_mgdl).toFixed(1)} `; });
@@ -1267,23 +1288,64 @@ function buildGlucoseChart(a) {
   if (gc.start) dots.push({ ...gc.start, t: 0, label: 'Inicio' });
   if (gc.end) dots.push({ ...gc.end, t: duration, label: 'Fin' });
   if (gc.post_2h) dots.push({ ...gc.post_2h, t: duration + 120, label: '+2h' });
-  const dotsSvg = dots.map(d => `<circle cx="${x(d.t).toFixed(1)}" cy="${y(d.value_mgdl).toFixed(1)}" r="4" fill="var(--surface-card)" stroke="var(--accent)" stroke-width="2"/><text x="${x(d.t).toFixed(1)}" y="${(y(d.value_mgdl)-8).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--text-secondary)">${fmt(d.value_mgdl,0)}</text>`).join('');
+  const duringActivity = series.filter(p => p.t >= 0 && p.t <= duration);
+  if (duringActivity.length) {
+    const minPt = duringActivity.reduce((b,p) => p.value_mgdl < b.value_mgdl ? p : b, duringActivity[0]);
+    if (!dots.some(d => d.t === minPt.t)) dots.push({ value_mgdl: minPt.value_mgdl, time: minPt.time, t: minPt.t, label: 'Mínimo' });
+  }
+  const dotsSvg = dots.map(d => {
+    const color = d.label === 'Mínimo' ? (d.value_mgdl < RANGE_LOW ? 'var(--critical)' : 'var(--warning)') : 'var(--accent)';
+    return `<circle cx="${x(d.t).toFixed(1)}" cy="${y(d.value_mgdl).toFixed(1)}" r="4" fill="var(--surface-card)" stroke="${color}" stroke-width="2"/><text x="${x(d.t).toFixed(1)}" y="${(y(d.value_mgdl)-8).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--text-secondary)">${fmt(d.value_mgdl,0)}</text>`;
+  }).join('');
+
+  const xTicks = [];
+  const xStep = span > 180 ? 60 : 30;
+  for (let t = Math.ceil(tMin/xStep)*xStep; t <= tMax + 0.01; t += xStep) xTicks.push(t);
+  const xAxisSvg = xTicks.map(t => `<text x="${x(t).toFixed(1)}" y="${h-4}" text-anchor="middle" font-size="8.5" fill="var(--text-muted)">${t===0?'inicio':(t>0?'+':'')+Math.round(t)+"'"}</text>`).join('');
 
   const legendBits = [
     `<span><span class="sw" style="background:var(--accent)"></span>Glucosa</span>`,
     `<span><span class="sw" style="background:var(--good);opacity:.3"></span>Rango objetivo 70–180</span>`,
     `<span><span class="sw" style="background:var(--accent);opacity:.3"></span>Durante la actividad</span>`,
   ];
-  const dotCaption = dots.map(d => `${d.label}: ${fmt(d.value_mgdl,0)} mg/dL (${d.time})`).join(' · ');
+  const dotCaption = dots.map(d => `${d.label}: ${fmt(d.value_mgdl,0)} mg/dL${d.time ? ' (' + d.time + ')' : ''}`).join(' · ');
 
-  return `<div class="act-chart-wrap">
-    <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
-      ${bandSvg}${actSvg}${lineSvg}${dotsSvg}
+  const chartId = 'gc' + Math.random().toString(36).slice(2,8);
+  const html = `<div class="act-chart-wrap">
+    <svg viewBox="0 0 ${w} ${h}" id="${chartId}">
+      ${bandSvg}${refSvg}${actSvg}${lineSvg}${yAxisSvg}${xAxisSvg}${dotsSvg}
+      <line class="chart-hover-line" id="${chartId}-hl" x1="0" x2="0" y1="${padT}" y2="${h-padB}"/>
+      <circle class="chart-hover-dot" id="${chartId}-hd" r="4"/>
     </svg>
+    <div class="chart-tip" id="${chartId}-tip"></div>
     <div class="act-chart-legend">${legendBits.join('')}</div>
     ${dotCaption ? `<div class="activity-glucose">🩸 ${dotCaption}</div>` : ''}
     ${gc.partial ? `<div class="act-detail-empty" style="margin-top:4px;">Datos parciales — faltan lecturas de glucosa en parte de este tramo (se completará en próximas sincronizaciones).</div>` : ''}
   </div>`;
+
+  requestAnimationFrame(() => {
+    const svg = document.getElementById(chartId);
+    if (!svg) return;
+    const hl = document.getElementById(chartId+'-hl');
+    const hd = document.getElementById(chartId+'-hd');
+    const tip = document.getElementById(chartId+'-tip');
+    svg.addEventListener('pointermove', e => {
+      const rect = svg.getBoundingClientRect();
+      const relX = (e.clientX - rect.left) / rect.width * w;
+      let best = series[0], bestDiff = Infinity;
+      series.forEach(p => { const diff = Math.abs(x(p.t) - relX); if (diff < bestDiff) { bestDiff = diff; best = p; } });
+      const cx = x(best.t), cy = y(best.value_mgdl);
+      hl.setAttribute('x1', cx); hl.setAttribute('x2', cx); hl.style.opacity = 1;
+      hd.setAttribute('cx', cx); hd.setAttribute('cy', cy); hd.style.opacity = 1;
+      tip.textContent = `${best.time} · ${fmt(best.value_mgdl,0)} mg/dL`;
+      tip.style.left = (cx / w * 100) + '%';
+      tip.style.top = (cy / h * 100) + '%';
+      tip.style.opacity = 1;
+    });
+    svg.addEventListener('pointerleave', () => { hl.style.opacity = 0; hd.style.opacity = 0; tip.style.opacity = 0; });
+  });
+
+  return html;
 }
 
 function fmtHMS(totalSec) {
@@ -1334,62 +1396,166 @@ function activityComparisonHtml(a) {
   if (!bits.length) return '';
   return `<div class="act-compare">vs. último "${prev.name}" (${fmtDateShort(prev.date)}): ${bits.join(' · ')}</div>`;
 }
-function perfDetailHtml(a) {
-  if (a.type === 'strength_training') return ''; // recovery+stats for strength are handled by strengthDetailHtml
+function fastestSlowestSplit(splits) {
+  const full = (splits || []).filter(s => !s.partial && s.pace_sec_km);
+  if (!full.length) return { fastest: null, slowest: null };
+  let fastest = full[0], slowest = full[0];
+  full.forEach(s => { if (s.pace_sec_km < fastest.pace_sec_km) fastest = s; if (s.pace_sec_km > slowest.pace_sec_km) slowest = s; });
+  return { fastest, slowest };
+}
+function summaryGridHtml(a) {
   const stats = [];
-  if (a.type === 'running') {
-    if (a.avg_power_w) stats.push(['Potencia media', fmt(a.avg_power_w,0) + ' W']);
-    if (a.max_power_w) stats.push(['Potencia máx.', fmt(a.max_power_w,0) + ' W']);
-    if (a.elevation_gain_m !== undefined && a.elevation_gain_m !== null && a.elevation_gain_m !== '') stats.push(['Desnivel +', fmt(a.elevation_gain_m,0) + ' m']);
-    if (a.elevation_loss_m !== undefined && a.elevation_loss_m !== null && a.elevation_loss_m !== '') stats.push(['Desnivel −', fmt(a.elevation_loss_m,0) + ' m']);
-  } else if (a.type === 'indoor_cycling' || a.type === 'cycling') {
-    if (a.avg_speed_kmh) stats.push(['Velocidad media', fmt(a.avg_speed_kmh,1) + ' km/h']);
-    if (a.avg_power_w) stats.push(['Potencia media', fmt(a.avg_power_w,0) + ' W']);
-    if (a.max_power_w) stats.push(['Potencia máx.', fmt(a.max_power_w,0) + ' W']);
+  const push = (label, value) => { if (value !== null && value !== undefined && value !== '') stats.push([label, value]); };
+
+  if (a.distance_km > 0) push('Distancia', fmt(a.distance_km,2) + ' km');
+  push('Tiempo total', fmt(a.duration_min,0) + ' min');
+
+  const standMin = (a.stand_sec || 0) / 60;
+  const movingMin = a.duration_min - standMin;
+  if (standMin >= 1 && movingMin > 0) {
+    push('Tiempo en movimiento', fmt(movingMin,0) + ' min');
+    if (a.distance_km > 0) push('Ritmo en movimiento', fmtPace(movingMin * 60 / a.distance_km));
   }
+  if (a.pace_sec_km) push('Ritmo medio', fmtPace(a.pace_sec_km));
+  const { fastest } = fastestSlowestSplit(a.km_splits);
+  if (fastest) push('Mejor km', `Km ${fastest.km} a ${fmtPace(fastest.pace_sec_km)}`);
+
+  if (a.avg_hr) push('FC media', fmt(a.avg_hr,0) + ' ppm');
+  if (a.max_hr) push('FC máxima', fmt(a.max_hr,0) + ' ppm');
+
+  if (a.hr_zones && a.hr_zones.length) {
+    const total = a.hr_zones.reduce((s,z) => s + (z.secs||0), 0);
+    if (total > 0) a.hr_zones.forEach(z => push(`Tiempo en Z${z.zone}`, fmt((z.secs||0)/total*100,0) + '%'));
+  }
+
+  if (a.elevation_gain_m !== undefined && a.elevation_gain_m !== null && a.elevation_gain_m !== '') push('Desnivel +', fmt(a.elevation_gain_m,0) + ' m');
+  if (a.elevation_loss_m !== undefined && a.elevation_loss_m !== null && a.elevation_loss_m !== '') push('Desnivel −', fmt(a.elevation_loss_m,0) + ' m');
+
+  if (a.cadence_spm) push('Cadencia media', fmt(a.cadence_spm,0) + ' spm');
+  if (a.stride_length_cm) push('Zancada', fmt(a.stride_length_cm/100,2) + ' m');
+
+  if (a.avg_power_w) push('Potencia media', fmt(a.avg_power_w,0) + ' W');
+  if (a.max_power_w) push('Potencia máx.', fmt(a.max_power_w,0) + ' W');
+
+  if (a.hr_drift_pct !== undefined && a.hr_drift_pct !== null && a.hr_drift_pct !== '') push('Deriva cardíaca', (a.hr_drift_pct > 0 ? '+' : '') + fmt(a.hr_drift_pct,1) + '%');
+
+  if (a.training_load) push('Carga', fmt(a.training_load,0));
+  if (a.training_effect_aerobic !== undefined && a.training_effect_aerobic !== null && a.training_effect_aerobic !== '') push('TE aeróbico', fmt(a.training_effect_aerobic,1) + (a.te_aerobic_label ? ' · ' + a.te_aerobic_label : ''));
+  if (a.training_effect_anaerobic !== undefined && a.training_effect_anaerobic !== null && a.training_effect_anaerobic !== '') push('TE anaeróbico', fmt(a.training_effect_anaerobic,1) + (a.te_anaerobic_label ? ' · ' + a.te_anaerobic_label : ''));
+
+  if (a.type === 'strength_training') {
+    if (a.num_sets !== undefined && a.num_sets !== null) push('Series', fmt(a.num_sets,0));
+    if (a.active_sec) push('Tiempo activo', fmtHMS(a.active_sec));
+    if (a.rest_sec) push('Descanso entre series', fmtHMS(a.rest_sec));
+    if (a.avg_hr_during_sets) push('FC media en series', fmt(a.avg_hr_during_sets,0) + ' ppm');
+  }
+
   const recovery = findRecoveryForDate(a.date);
-  if (recovery !== null) stats.push(['Recuperación (ese día)', fmtRecoveryMinutes(recovery)]);
+  if (recovery !== null) push('Recuperación (ese día)', fmtRecoveryMinutes(recovery));
+
   if (!stats.length) return '';
   return `<div class="act-detail-grid">${stats.map(([l,v]) => `<div class="act-detail-stat"><div class="rl">${l}</div><div class="rv num">${v}</div></div>`).join('')}</div>`;
 }
-function strengthDetailHtml(a) {
-  if (a.type !== 'strength_training') return '';
-  if (a.num_sets === undefined || a.num_sets === null) return '';
-  const stats = [
-    ['Series', fmt(a.num_sets,0)],
-    ['Tiempo activo', fmtHMS(a.active_sec)],
-    ['Descanso', fmtHMS(a.rest_sec)],
-    ['FC media en series', a.avg_hr_during_sets ? fmt(a.avg_hr_during_sets,0) + ' ppm' : '—'],
-  ];
-  const recovery = findRecoveryForDate(a.date);
-  if (recovery !== null) stats.push(['Recuperación (ese día)', fmtRecoveryMinutes(recovery)]);
-  return `<div class="act-detail-grid">${stats.map(([l,v]) => `<div class="act-detail-stat"><div class="rl">${l}</div><div class="rv num">${v}</div></div>`).join('')}</div>`;
+function kmSplitsTableHtml(a) {
+  const splits = a.km_splits || [];
+  if (!splits.length) return '';
+  const { fastest, slowest } = fastestSlowestSplit(splits);
+  const hasElev = splits.some(s => s.elev_net_m !== undefined && s.elev_net_m !== null);
+  const rows = splits.map(s => {
+    const kmLabel = s.partial ? `${fmt((s.distance_m||0)/1000,2)} km` : `${s.km}`;
+    const rowCls = s === fastest ? ' split-fastest' : s === slowest ? ' split-slowest' : '';
+    const elevCell = hasElev ? `<td class="num">${s.elev_net_m != null ? (s.elev_net_m > 0 ? '+' : '') + fmt(s.elev_net_m,0) + ' m' : '—'}</td>` : '';
+    return `<tr class="${rowCls.trim()}">
+      <td>${kmLabel}</td>
+      <td class="num">${s.pace_sec_km ? fmtPace(s.pace_sec_km) : '—'}</td>
+      <td class="num">${s.avg_hr ? fmt(s.avg_hr,0) : '—'}</td>
+      <td class="num">${s.avg_cadence ? fmt(s.avg_cadence,0) : '—'}</td>
+      ${elevCell}
+    </tr>`;
+  }).join('');
+  return `<div class="act-splits-wrap"><table class="act-splits">
+    <thead><tr><th>Km</th><th>Ritmo</th><th>FC media</th><th>Cadencia</th>${hasElev ? '<th>Desnivel</th>' : ''}</tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
 }
-function buildActivityChart(a) {
-  const chart = a.chart;
-  if (!chart || !chart.t || chart.t.length < 2) return '';
-  const w = 600, h = 160, padL = 2, padR = 2, padT = 6, padB = 4;
+function decimateArray(arr, maxPts) {
+  if (!arr || arr.length <= maxPts) return arr;
+  const n = arr.length, step = (n - 1) / (maxPts - 1);
+  return Array.from({ length: maxPts }, (_, i) => arr[Math.round(i * step)]);
+}
+function decimateChart(chart, maxPts) {
+  if (!chart || !chart.t || chart.t.length <= maxPts) return chart;
+  const n = chart.t.length, step = (n - 1) / (maxPts - 1);
+  const idxs = Array.from({ length: maxPts }, (_, i) => Math.round(i * step));
+  const pick = arr => (arr ? idxs.map(i => arr[i]) : arr);
+  return { t: pick(chart.t), hr: pick(chart.hr), pace_sec_km: pick(chart.pace_sec_km), cadence: pick(chart.cadence), elevation_m: pick(chart.elevation_m), speed_kmh: pick(chart.speed_kmh) };
+}
+function cumulativeDistanceKm(chart) {
   const n = chart.t.length;
-  const tMax = chart.t[n-1] || 1;
-  const x = i => padL + (chart.t[i] / tMax) * (w - padL - padR);
-
+  const dist = new Array(n).fill(0);
+  for (let i = 1; i < n; i++) {
+    const dtH = (chart.t[i] - chart.t[i-1]) / 3600;
+    const v0 = chart.speed_kmh ? chart.speed_kmh[i-1] : null, v1 = chart.speed_kmh ? chart.speed_kmh[i] : null;
+    const avgV = (v0 != null && v1 != null) ? (v0+v1)/2 : (v0 != null ? v0 : (v1 != null ? v1 : 0));
+    dist[i] = dist[i-1] + avgV * dtH;
+  }
+  return dist;
+}
+function nearestRouteIndexByDist(route, distKm) {
+  if (!route || !route.length) return -1;
+  const targetM = distKm * 1000;
+  let best = 0, bestDiff = Infinity;
+  route.forEach((p,i) => {
+    if (p[3] === null || p[3] === undefined) return;
+    const diff = Math.abs(p[3] - targetM);
+    if (diff < bestDiff) { bestDiff = diff; best = i; }
+  });
+  return best;
+}
+function buildActivityAnalysis(a) {
+  const chart = decimateChart(a.chart, 300);
+  if (!chart || !chart.t || chart.t.length < 2) return '';
   const hrVals = chart.hr.filter(v => v !== null);
   if (!hrVals.length) return '';
+
+  const n = chart.t.length;
+  const tMaxMin = chart.t[n-1] / 60 || 1;
+  const w = 600, h = 190, padL = 36, padR = 36, padT = 14, padB = 24;
+  const x = i => padL + (chart.t[i] / 60 / tMaxMin) * (w - padL - padR);
+  const xAtMin = mins => padL + (mins / tMaxMin) * (w - padL - padR);
+
+  // ---- FC axis (izquierda) ----
   const hrMin = Math.min(...hrVals, ZONE_BOUNDS[0] - 8);
   const hrMax = Math.max(...hrVals, ZONE_BOUNDS[4] + 15);
-  const yHr = v => padT + (1 - (v - hrMin) / (hrMax - hrMin || 1)) * (h - padT - padB);
+  const yHr = v => padT + (1 - (v - hrMin) / ((hrMax - hrMin) || 1)) * (h - padT - padB);
+  const hrTicks = Array.from({ length: 5 }, (_, i) => Math.round((hrMin + (hrMax-hrMin)*i/4) / 5) * 5);
 
+  // ---- Ritmo (derecha, invertido: más rápido arriba), recortando paradas/outliers ----
+  const PACE_CAP = 900; // 15:00/km
+  const isRun = a.type === 'running';
+  const paceVals = (isRun && chart.pace_sec_km) ? chart.pace_sec_km.filter(v => v !== null && v <= PACE_CAP) : [];
+  const havePace = paceVals.length > 1;
+  let yPace = null, paceTicks = [];
+  if (havePace) {
+    const pMin = Math.min(...paceVals), pMax = Math.max(...paceVals);
+    const pSpan = (pMax - pMin) || 1;
+    yPace = v => padT + ((Math.min(v, PACE_CAP) - pMin) / pSpan) * (h - padT - padB);
+    paceTicks = Array.from({ length: 5 }, (_, i) => pMin + pSpan*i/4);
+  }
+
+  // ---- Bandas de zona FC + etiquetas Z1..Z5 en el margen ----
   const bandBounds = [hrMin, ZONE_BOUNDS[0], ZONE_BOUNDS[1], ZONE_BOUNDS[2], ZONE_BOUNDS[3], ZONE_BOUNDS[4], hrMax];
-  let bandsSvg = '';
+  let bandsSvg = '', zoneLabelsSvg = '';
   for (let z = 0; z < 6; z++) {
     const lo = Math.max(bandBounds[z], hrMin), hi = Math.min(bandBounds[z+1], hrMax);
     if (hi <= lo) continue;
     const yTop = yHr(hi), yBot = yHr(lo);
-    bandsSvg += `<rect x="${padL}" y="${yTop.toFixed(1)}" width="${w-padL-padR}" height="${(yBot-yTop).toFixed(1)}" fill="${ZONE_COLORS[z]}" opacity="0.12"/>`;
+    bandsSvg += `<rect x="${padL}" y="${yTop.toFixed(1)}" width="${w-padL-padR}" height="${(yBot-yTop).toFixed(1)}" fill="${ZONE_COLORS[z]}" opacity="0.1"/>`;
+    if (z >= 1 && (yBot - yTop) > 9) zoneLabelsSvg += `<text x="${padL+3}" y="${((yTop+yBot)/2+3).toFixed(1)}" font-size="8" fill="var(--text-muted)">Z${z}</text>`;
   }
 
   let walkSvg = '';
-  if (a.type === 'running' && chart.cadence) {
+  if (isRun && chart.cadence) {
     let segStart = null;
     for (let i = 0; i < n; i++) {
       const walking = chart.cadence[i] !== null && chart.cadence[i] < RUN_CADENCE_THRESHOLD_JS;
@@ -1406,97 +1572,264 @@ function buildActivityChart(a) {
   chart.hr.forEach((v,i) => { if (v === null) return; hrPath += `${hrPath===''?'M':'L'}${x(i).toFixed(1)},${yHr(v).toFixed(1)} `; });
 
   let paceSvg = '';
-  const isRun = a.type === 'running';
-  if (isRun && chart.pace_sec_km) {
-    const paceVals = chart.pace_sec_km.filter(v => v !== null);
-    if (paceVals.length > 1) {
-      const pMin = Math.min(...paceVals), pMax = Math.max(...paceVals);
-      const yPace = v => padT + ((v - pMin) / ((pMax - pMin) || 1)) * (h - padT - padB);
-      let path = '';
-      chart.pace_sec_km.forEach((v,i) => { if (v === null) return; path += `${path===''?'M':'L'}${x(i).toFixed(1)},${yPace(v).toFixed(1)} `; });
-      paceSvg = `<path d="${path}" fill="none" stroke="var(--cat-yoga)" stroke-width="2" stroke-dasharray="4,3" stroke-linecap="round"/>`;
-    }
+  if (havePace) {
+    let path = '', open = false;
+    chart.pace_sec_km.forEach((v,i) => {
+      if (v === null || v > PACE_CAP) { open = false; return; }
+      path += `${open ? 'L' : 'M'}${x(i).toFixed(1)},${yPace(v).toFixed(1)} `;
+      open = true;
+    });
+    paceSvg = `<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/>`;
   }
 
-  const legendBits = [`<span><span class="sw" style="background:var(--critical)"></span>FC</span>`];
-  if (isRun && paceSvg) legendBits.push(`<span><span class="sw" style="background:var(--cat-yoga)"></span>Ritmo (discontinuo)</span>`);
-  if (isRun && walkSvg) legendBits.push(`<span><span class="sw" style="background:var(--text-muted);opacity:.5"></span>Caminando</span>`);
-  legendBits.push(`<span>Fondo = zonas FC (Z1 abajo → Z5 arriba)</span>`);
+  let avgHrSvg = '';
+  if (a.avg_hr) {
+    const yAvg = yHr(Number(a.avg_hr));
+    avgHrSvg = `<line x1="${padL}" x2="${w-padR}" y1="${yAvg.toFixed(1)}" y2="${yAvg.toFixed(1)}" stroke="var(--text-muted)" stroke-width="1" stroke-dasharray="3,3"/>
+      <text x="${w-padR}" y="${(yAvg-3).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--text-secondary)">media ${fmt(a.avg_hr,0)}</text>`;
+  }
 
-  return `<div class="act-chart-wrap">
-    <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
-      ${bandsSvg}${walkSvg}${paceSvg}
+  const xStep = tMaxMin <= 25 ? 5 : 10;
+  let xAxisSvg = '';
+  for (let m = 0; m <= tMaxMin + 0.01; m += xStep) {
+    const xp = xAtMin(m);
+    xAxisSvg += `<line x1="${xp.toFixed(1)}" x2="${xp.toFixed(1)}" y1="${h-padB}" y2="${h-padB+3}" stroke="var(--text-muted)"/><text x="${xp.toFixed(1)}" y="${h-4}" text-anchor="middle" font-size="9" fill="var(--text-muted)">${Math.round(m)}'</text>`;
+  }
+  const hrAxisSvg = hrTicks.map(v => `<text x="${(padL-4).toFixed(1)}" y="${(yHr(v)+3).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--text-muted)">${v}</text>`).join('');
+  const paceAxisSvg = havePace ? paceTicks.map(v => `<text x="${(w-padR+4).toFixed(1)}" y="${(yPace(v)+3).toFixed(1)}" font-size="9" fill="var(--text-muted)">${fmtPace(v).replace('/km','')}</text>`).join('') : '';
+
+  const legendBits = [`<span><span class="sw" style="background:var(--critical)"></span>FC (ppm)</span>`];
+  if (havePace) legendBits.push(`<span><span class="sw" style="background:var(--accent)"></span>Ritmo (min/km)</span>`);
+  if (walkSvg) legendBits.push(`<span><span class="sw" style="background:var(--text-muted);opacity:.5"></span>Caminando / parado</span>`);
+
+  const chartId = 'ac' + Math.random().toString(36).slice(2,8);
+  const mainChartSvg = `<svg viewBox="0 0 ${w} ${h}" id="${chartId}">
+      ${bandsSvg}${zoneLabelsSvg}${walkSvg}${avgHrSvg}${paceSvg}
       <path d="${hrPath}" fill="none" stroke="var(--critical)" stroke-width="2" stroke-linecap="round"/>
+      ${hrAxisSvg}${paceAxisSvg}${xAxisSvg}
+      <line class="chart-hover-line" id="${chartId}-hl" x1="0" x2="0" y1="${padT}" y2="${h-padB}"/>
+      <circle class="chart-hover-dot" id="${chartId}-hrd" r="4"/>
+      ${havePace ? `<circle class="chart-hover-dot" id="${chartId}-pad" r="4"/>` : ''}
     </svg>
-    <div class="act-chart-legend">${legendBits.join('')}</div>
-  </div>`;
-}
-function buildActivityRoute(a) {
-  const route = a.route;
-  if (!route || route.length < 2) return '';
-  const lats = route.map(p=>p[0]), lons = route.map(p=>p[1]);
-  const latMin = Math.min(...lats), latMax = Math.max(...lats), lonMin = Math.min(...lons), lonMax = Math.max(...lons);
-  const w = 320, h = 220, pad = 16;
-  const latMid = (latMin + latMax) / 2;
-  const lonAspect = Math.cos(latMid * Math.PI / 180) || 1;
-  const spanLon = Math.max((lonMax - lonMin) * lonAspect, 0.00005);
-  const spanLat = Math.max(latMax - latMin, 0.00005);
-  const scale = Math.min((w - 2*pad) / spanLon, (h - 2*pad) / spanLat);
-  const cx = (lonMin + lonMax) / 2, cy = (latMin + latMax) / 2;
-  const px = lon => w/2 + (lon - cx) * lonAspect * scale;
-  const py = lat => h/2 - (lat - cy) * scale;
+    <div class="chart-tip" id="${chartId}-tip"></div>`;
 
-  let segs = '';
-  for (let i = 1; i < route.length; i++) {
-    const [lat0, lon0] = route[i-1];
-    const [lat1, lon1, hr1] = route[i];
-    const z = hrZone(Number(hr1));
-    const color = (z !== null ? ZONE_COLORS[z] : null) || 'var(--accent)';
-    segs += `<line x1="${px(lon0).toFixed(1)}" y1="${py(lat0).toFixed(1)}" x2="${px(lon1).toFixed(1)}" y2="${py(lat1).toFixed(1)}" stroke="${color}" stroke-width="3" stroke-linecap="round"/>`;
+  // ---- Perfil de altitud (mismo eje X, sincronizado) ----
+  const elevVals = (chart.elevation_m || []).filter(v => v !== null);
+  const haveAlt = elevVals.length > 1;
+  const hAlt = 60, padTAlt = 6, padBAlt = 4;
+  let altBlock = '';
+  if (haveAlt) {
+    const eMin = Math.min(...elevVals), eMax = Math.max(...elevVals);
+    const yAlt = v => padTAlt + (1 - (v - eMin) / ((eMax - eMin) || 1)) * (hAlt - padTAlt - padBAlt);
+    let linePath = '';
+    chart.elevation_m.forEach((v,i) => { if (v === null) return; linePath += `${linePath===''?'M':'L'}${x(i).toFixed(1)},${yAlt(v).toFixed(1)} `; });
+    const areaPath = linePath + ` L${x(n-1).toFixed(1)},${hAlt-padBAlt} L${x(0).toFixed(1)},${hAlt-padBAlt} Z`;
+    altBlock = `<div class="act-alt-wrap">
+      <svg viewBox="0 0 ${w} ${hAlt}" id="${chartId}-alt">
+        <path d="${areaPath}" fill="var(--text-muted)" opacity="0.14"/>
+        <path d="${linePath}" fill="none" stroke="var(--text-secondary)" stroke-width="1.5"/>
+        <line class="chart-hover-line" id="${chartId}-alt-hl" x1="0" x2="0" y1="${padTAlt}" y2="${hAlt-padBAlt}"/>
+        <circle class="chart-hover-dot" id="${chartId}-alt-d" r="3.5"/>
+      </svg>
+      <div class="act-alt-label">${fmt(eMin,0)}–${fmt(eMax,0)} m</div>
+    </div>`;
   }
 
-  let markers = '';
-  const totalDist = route[route.length - 1][3];
-  if (totalDist) {
-    for (let km = 1; km * 1000 < totalDist; km++) {
-      const target = km * 1000;
-      let best = null, bestDiff = Infinity;
-      route.forEach(p => { if (p[3] !== null && p[3] !== undefined) { const diff = Math.abs(p[3]-target); if (diff < bestDiff) { bestDiff = diff; best = p; } } });
-      if (best) markers += `<circle cx="${px(best[1]).toFixed(1)}" cy="${py(best[0]).toFixed(1)}" r="3.5" fill="var(--surface-card)" stroke="var(--text-secondary)" stroke-width="1.5"/>`;
+  // ---- Mapa de ruta (sincronizado por distancia) ----
+  const route = decimateArray(a.route, 300);
+  const hasRoute = route && route.length > 1 && (a.type === 'running' || a.type === 'walking');
+  let routeBlock = '', routeCtx = null;
+  if (hasRoute) {
+    const lats = route.map(p=>p[0]), lons = route.map(p=>p[1]);
+    const latMin = Math.min(...lats), latMax = Math.max(...lats), lonMin = Math.min(...lons), lonMax = Math.max(...lons);
+    const rw = 320, rh = 220, pad = 16;
+    const latMid = (latMin + latMax) / 2;
+    const lonAspect = Math.cos(latMid * Math.PI / 180) || 1;
+    const spanLon = Math.max((lonMax - lonMin) * lonAspect, 0.00005);
+    const spanLat = Math.max(latMax - latMin, 0.00005);
+    const scale = Math.min((rw - 2*pad) / spanLon, (rh - 2*pad) / spanLat);
+    const cx0 = (lonMin + lonMax) / 2, cy0 = (latMin + latMax) / 2;
+    const px = lon => rw/2 + (lon - cx0) * lonAspect * scale;
+    const py = lat => rh/2 - (lat - cy0) * scale;
+
+    let segs = '';
+    for (let i = 1; i < route.length; i++) {
+      const [lat0, lon0] = route[i-1];
+      const [lat1, lon1, hr1] = route[i];
+      const z = hrZone(Number(hr1));
+      const color = (z !== null ? ZONE_COLORS[z] : null) || 'var(--accent)';
+      segs += `<line x1="${px(lon0).toFixed(1)}" y1="${py(lat0).toFixed(1)}" x2="${px(lon1).toFixed(1)}" y2="${py(lat1).toFixed(1)}" stroke="${color}" stroke-width="3" stroke-linecap="round"/>`;
     }
+
+    const totalDist = route[route.length - 1][3];
+    const kmMarkers = [];
+    if (totalDist) {
+      for (let km = 1; km * 1000 < totalDist; km++) {
+        const target = km * 1000;
+        let best = null, bestDiff = Infinity;
+        route.forEach(p => { if (p[3] !== null && p[3] !== undefined) { const diff = Math.abs(p[3]-target); if (diff < bestDiff) { bestDiff = diff; best = p; } } });
+        if (best) kmMarkers.push({ km, p: best });
+      }
+    }
+    const markers = kmMarkers.map(({km,p}) => `<circle cx="${px(p[1]).toFixed(1)}" cy="${py(p[0]).toFixed(1)}" r="7" fill="var(--surface-card)" stroke="var(--text-secondary)" stroke-width="1.5"/><text x="${px(p[1]).toFixed(1)}" y="${(py(p[0])+3).toFixed(1)}" text-anchor="middle" font-size="8.5" fill="var(--text-secondary)" font-weight="700">${km}</text>`).join('');
+
+    const start = route[0], end = route[route.length-1];
+    const sameStartEnd = Math.hypot(px(end[1])-px(start[1]), py(end[0])-py(start[0])) < 6;
+    const startEndSvg = sameStartEnd
+      ? `<circle cx="${px(start[1]).toFixed(1)}" cy="${py(start[0]).toFixed(1)}" r="6" fill="var(--good)" stroke="var(--surface-card)" stroke-width="1.5"/><rect x="${(px(start[1])-3).toFixed(1)}" y="${(py(start[0])-3).toFixed(1)}" width="6" height="6" fill="var(--critical)" stroke="var(--surface-card)" stroke-width="1"/>`
+      : `<circle cx="${px(start[1]).toFixed(1)}" cy="${py(start[0]).toFixed(1)}" r="5" fill="var(--good)" stroke="var(--surface-card)" stroke-width="1.5"/><rect x="${(px(end[1])-4).toFixed(1)}" y="${(py(end[0])-4).toFixed(1)}" width="8" height="8" fill="var(--critical)" stroke="var(--surface-card)" stroke-width="1.5"/>`;
+
+    // scale ≈ px por grado de latitud (y por lon*cos(lat)); 1° lat ≈ 111320 m.
+    const pxPerMeter = scale / 111320;
+    const niceMeters = [100,200,250,500,1000,2000,5000].reduce((best,m) => {
+      const px_ = m * pxPerMeter;
+      return (px_ <= 90 && px_ > (best ? best.px : 0)) ? { m, px: px_ } : best;
+    }, null) || { m: 100, px: 100*pxPerMeter };
+    const barLabel = niceMeters.m >= 1000 ? `${niceMeters.m/1000} km` : `${niceMeters.m} m`;
+    const barX0 = pad, barY = rh - 8;
+    const scaleBarSvg = `<line x1="${barX0}" x2="${(barX0+niceMeters.px).toFixed(1)}" y1="${barY}" y2="${barY}" stroke="var(--text-secondary)" stroke-width="2"/>
+      <line x1="${barX0}" x2="${barX0}" y1="${barY-3}" y2="${barY+3}" stroke="var(--text-secondary)" stroke-width="2"/>
+      <line x1="${(barX0+niceMeters.px).toFixed(1)}" x2="${(barX0+niceMeters.px).toFixed(1)}" y1="${barY-3}" y2="${barY+3}" stroke="var(--text-secondary)" stroke-width="2"/>
+      <text x="${(barX0+niceMeters.px/2).toFixed(1)}" y="${barY-5}" text-anchor="middle" font-size="9" fill="var(--text-secondary)">${barLabel}</text>`;
+
+    const zoneLegend = [1,2,3,4,5].map(z => {
+      const lo = ZONE_BOUNDS[z-1], hi = z < 5 ? ZONE_BOUNDS[z]-1 : null;
+      return `<span><span class="sw" style="background:${ZONE_COLORS[z]}"></span>Z${z} ${lo}${hi===null?'+':'–'+hi}</span>`;
+    }).join('');
+
+    routeBlock = `<div class="act-route-wrap">
+      <svg viewBox="0 0 ${rw} ${rh}" id="${chartId}-map">
+        ${segs}${markers}${startEndSvg}${scaleBarSvg}
+        <circle class="chart-hover-dot" id="${chartId}-map-d" r="5.5" fill="none" stroke="var(--text-primary)" stroke-width="2"/>
+      </svg>
+      <div class="act-chart-legend">
+        <span><span class="sw" style="background:var(--good);border-radius:50%;"></span>Salida</span>
+        <span><span class="sw" style="background:var(--critical);"></span>Llegada${sameStartEnd?' (= salida)':''}</span>
+        ${zoneLegend}
+      </div>
+      <div class="chart-tip" id="${chartId}-map-tip"></div>
+    </div>`;
+    routeCtx = { route, px, py };
   }
 
-  const start = route[0], end = route[route.length-1];
-  return `<div class="act-route-wrap">
-    <svg viewBox="0 0 ${w} ${h}">
-      ${segs}${markers}
-      <circle cx="${px(start[1]).toFixed(1)}" cy="${py(start[0]).toFixed(1)}" r="5" fill="var(--good)" stroke="var(--surface-card)" stroke-width="1.5"/>
-      <rect x="${(px(end[1])-4).toFixed(1)}" y="${(py(end[0])-4).toFixed(1)}" width="8" height="8" fill="var(--critical)" stroke="var(--surface-card)" stroke-width="1.5"/>
-    </svg>
-    <div class="act-chart-legend">
-      <span><span class="sw" style="background:var(--good);border-radius:50%;"></span>Inicio</span>
-      <span><span class="sw" style="background:var(--critical);"></span>Fin</span>
-      <span>Color = zona FC · círculos = cada km</span>
-    </div>
-  </div>`;
+  requestAnimationFrame(() => {
+    const svg = document.getElementById(chartId);
+    if (!svg) return;
+    const hl = document.getElementById(chartId+'-hl');
+    const hrd = document.getElementById(chartId+'-hrd');
+    const padDot = document.getElementById(chartId+'-pad');
+    const tip = document.getElementById(chartId+'-tip');
+    const altSvg = document.getElementById(chartId+'-alt');
+    const altHl = document.getElementById(chartId+'-alt-hl');
+    const altD = document.getElementById(chartId+'-alt-d');
+    const mapD = document.getElementById(chartId+'-map-d');
+    const mapTip = document.getElementById(chartId+'-map-tip');
+    const elevForAlt = haveAlt ? chart.elevation_m.filter(v => v !== null) : [];
+    const eMin2 = haveAlt ? Math.min(...elevForAlt) : 0, eMax2 = haveAlt ? Math.max(...elevForAlt) : 0;
+    const distKm = routeCtx ? cumulativeDistanceKm(chart) : null;
+
+    function updateHover(idx) {
+      idx = Math.max(0, Math.min(n-1, idx));
+      const cx = x(idx);
+      hl.setAttribute('x1', cx); hl.setAttribute('x2', cx); hl.style.opacity = 1;
+      const hrv = chart.hr[idx];
+      if (hrv !== null) { hrd.setAttribute('cx', cx); hrd.setAttribute('cy', yHr(hrv)); hrd.style.opacity = 1; } else { hrd.style.opacity = 0; }
+      const pv = chart.pace_sec_km ? chart.pace_sec_km[idx] : null;
+      if (padDot) {
+        if (havePace && pv !== null && pv <= PACE_CAP) { padDot.setAttribute('cx', cx); padDot.setAttribute('cy', yPace(pv)); padDot.style.opacity = 1; } else { padDot.style.opacity = 0; }
+      }
+      const bits = [`${Math.round(chart.t[idx]/60)}'`];
+      if (distKm) bits.push(`${fmt(distKm[idx],2)} km`);
+      if (hrv !== null) bits.push(`${fmt(hrv,0)} ppm`);
+      if (pv !== null && pv !== undefined) bits.push(fmtPace(pv));
+      if (chart.cadence && chart.cadence[idx] !== null) bits.push(`${fmt(chart.cadence[idx],0)} spm`);
+      if (chart.elevation_m && chart.elevation_m[idx] !== null) bits.push(`${fmt(chart.elevation_m[idx],0)} m`);
+      tip.textContent = bits.join(' · ');
+      tip.style.left = (cx / w * 100) + '%';
+      tip.style.top = (yHr(hrv !== null ? hrv : hrMin) / h * 100) + '%';
+      tip.style.opacity = 1;
+
+      if (altSvg && haveAlt && chart.elevation_m[idx] !== null) {
+        const yAlt2 = padTAlt + (1 - (chart.elevation_m[idx] - eMin2) / ((eMax2-eMin2)||1)) * (hAlt-padTAlt-padBAlt);
+        altHl.setAttribute('x1', cx); altHl.setAttribute('x2', cx); altHl.style.opacity = 1;
+        altD.setAttribute('cx', cx); altD.setAttribute('cy', yAlt2); altD.style.opacity = 1;
+      }
+
+      if (routeCtx && distKm) {
+        const ri = nearestRouteIndexByDist(routeCtx.route, distKm[idx]);
+        if (ri >= 0) {
+          const p = routeCtx.route[ri];
+          mapD.setAttribute('cx', routeCtx.px(p[1])); mapD.setAttribute('cy', routeCtx.py(p[0])); mapD.style.opacity = 1;
+          if (mapTip) { mapTip.textContent = `${fmt(distKm[idx],2)} km${p[2] ? ' · ' + fmt(p[2],0) + ' ppm' : ''}`; mapTip.style.opacity = 1; }
+        }
+      }
+    }
+    function handleMove(e, refSvg) {
+      const rect = refSvg.getBoundingClientRect();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const relX = (clientX - rect.left) / rect.width * w;
+      updateHover(Math.round((relX - padL) / (w - padL - padR) * (n - 1)));
+    }
+    function clearHover() {
+      hl.style.opacity = 0; hrd.style.opacity = 0; if (padDot) padDot.style.opacity = 0; tip.style.opacity = 0;
+      if (altHl) altHl.style.opacity = 0; if (altD) altD.style.opacity = 0;
+      if (mapD) mapD.style.opacity = 0; if (mapTip) mapTip.style.opacity = 0;
+    }
+    svg.addEventListener('pointermove', e => handleMove(e, svg));
+    svg.addEventListener('pointerleave', clearHover);
+    if (altSvg) { altSvg.addEventListener('pointermove', e => handleMove(e, altSvg)); altSvg.addEventListener('pointerleave', clearHover); }
+  });
+
+  return `<div class="act-chart-wrap">${mainChartSvg}<div class="act-chart-legend">${legendBits.join('')}</div></div>${altBlock}${routeBlock}`;
 }
 function renderActivityDetail(a) {
   const parts = [
-    perfDetailHtml(a),
-    strengthDetailHtml(a),
+    summaryGridHtml(a),
     activityComparisonHtml(a),
-    buildActivityChart(a),
-    (a.type === 'running' || a.type === 'walking') ? buildActivityRoute(a) : '',
+    kmSplitsTableHtml(a),
+    buildActivityAnalysis(a),
     buildGlucoseChart(a),
     activityGlucoseHtml(a),
   ].filter(Boolean);
   if (!parts.length) return '<div class="act-detail-empty">Sin datos detallados disponibles para esta actividad (solo se guarda detalle de las más recientes en cada sincronización).</div>';
   return parts.join('');
 }
+function collapsedStatsFor(a) {
+  const hrStat = { v: a.avg_hr ? fmt(a.avg_hr,0) : '—', l: 'ppm' };
+  if (a.type === 'running' || a.type === 'walking') {
+    const stats = [];
+    if (a.distance_km > 0) stats.push({ v: fmt(a.distance_km,2), l: 'km' });
+    stats.push({ v: fmt(a.duration_min,0), l: 'min' });
+    stats.push({ v: a.pace_sec_km ? fmtPace(a.pace_sec_km).replace('/km','') : '—', l: '/km' });
+    stats.push(hrStat);
+    return stats;
+  }
+  if (a.type === 'indoor_cycling' || a.type === 'cycling') {
+    const stats = [];
+    if (a.distance_km > 0) stats.push({ v: fmt(a.distance_km,2), l: 'km' });
+    stats.push({ v: fmt(a.duration_min,0), l: 'min' });
+    if (a.avg_speed_kmh) stats.push({ v: fmt(a.avg_speed_kmh,1), l: 'km/h' });
+    else if (a.avg_power_w) stats.push({ v: fmt(a.avg_power_w,0), l: 'W' });
+    stats.push(hrStat);
+    return stats;
+  }
+  if (a.type === 'strength_training') {
+    const stats = [{ v: fmt(a.duration_min,0), l: 'min' }, hrStat];
+    if (a.num_sets !== undefined && a.num_sets !== null) stats.push({ v: fmt(a.num_sets,0), l: 'series' });
+    return stats;
+  }
+  const stats = [];
+  if (a.distance_km > 0) stats.push({ v: fmt(a.distance_km,2), l: 'km' });
+  stats.push({ v: fmt(a.duration_min,0), l: 'min' });
+  stats.push(hrStat);
+  return stats;
+}
 function activityRowHtml(a) {
   const meta = CAT_META[a.type] || { label: a.type, color: 'var(--text-muted)', icon: '•' };
   const d = a.date.slice(8,10) + '/' + a.date.slice(5,7);
-  const dist = a.distance_km > 0 ? fmt(a.distance_km,2) + ' km' : '';
+  const distInStats = a.type !== 'strength_training' && a.distance_km > 0;
+  const dist = (!distInStats && a.distance_km > 0) ? fmt(a.distance_km,2) + ' km' : '';
+  const stats = collapsedStatsFor(a);
   const realZone = dominantZoneFromReal(a.hr_zones);
   const zoneEl = realZone !== null ? zoneBadge(realZone) : zoneBadge(hrZone(Number(a.avg_hr)));
   const teLabel = a.te_aerobic_label;
@@ -1520,9 +1853,7 @@ function activityRowHtml(a) {
           <div class="sub">${d} · ${meta.label}${dist ? ' · ' + dist : ''}</div>
         </div>
         <div class="act-stats">
-          <div class="s"><div class="v num">${fmt(a.duration_min,0)}</div><div class="l">min</div></div>
-          <div class="s"><div class="v num">${a.avg_hr ? fmt(a.avg_hr,0) : '—'}</div><div class="l">ppm</div></div>
-          <div class="s"><div class="v num">${fmt(a.training_effect_aerobic,1)}</div><div class="l">TE aer.</div></div>
+          ${stats.map(s => `<div class="s"><div class="v num">${s.v}</div><div class="l">${s.l}</div></div>`).join('')}
         </div>
         <span class="act-chevron">▾</span>
       </div>

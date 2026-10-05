@@ -433,7 +433,7 @@ def fetch_activity_series(client: Garmin, activities_df: pd.DataFrame, exercise_
             km_splits = []
             bucket_start_t = samples[0]["t"]; bucket_start_dist = samples[0]["dist"] or 0
             next_km = 1000.0
-            hrs, cads = [], []
+            hrs, cads, elevs = [], [], []
             all_cadences, running_cadences = [], []
             for s in samples:
                 if s["hr"] is not None:
@@ -442,6 +442,8 @@ def fetch_activity_series(client: Garmin, activities_df: pd.DataFrame, exercise_
                     cads.append(s["cad"]); all_cadences.append(s["cad"])
                     if s["cad"] >= RUN_CADENCE_THRESHOLD:
                         running_cadences.append(s["cad"])
+                if s["elev"] is not None:
+                    elevs.append(s["elev"])
                 dist = s["dist"]
                 if dist is not None and dist >= next_km:
                     seg_dist = dist - bucket_start_dist
@@ -452,10 +454,11 @@ def fetch_activity_series(client: Garmin, activities_df: pd.DataFrame, exercise_
                             "pace_sec_km": round(seg_t / (seg_dist / 1000.0)),
                             "avg_hr": round(sum(hrs) / len(hrs)) if hrs else None,
                             "avg_cadence": round(sum(cads) / len(cads)) if cads else None,
+                            "elev_net_m": round(elevs[-1] - elevs[0], 1) if len(elevs) >= 2 else None,
                             "partial": False,
                         })
                     bucket_start_t, bucket_start_dist = s["t"], dist
-                    hrs, cads = [], []
+                    hrs, cads, elevs = [], [], []
                     next_km += 1000.0
             last_dist = samples[-1]["dist"] or 0
             seg_dist = last_dist - bucket_start_dist
@@ -466,6 +469,7 @@ def fetch_activity_series(client: Garmin, activities_df: pd.DataFrame, exercise_
                     "pace_sec_km": round(seg_t / (seg_dist / 1000.0)),
                     "avg_hr": round(sum(hrs) / len(hrs)) if hrs else None,
                     "avg_cadence": round(sum(cads) / len(cads)) if cads else None,
+                    "elev_net_m": round(elevs[-1] - elevs[0], 1) if len(elevs) >= 2 else None,
                     "partial": True,
                     "distance_m": round(seg_dist),
                 })

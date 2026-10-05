@@ -1533,6 +1533,15 @@ function nearestRouteIndexByDist(route, distKm) {
   });
   return best;
 }
+function niceTicks(min, max, maxCount, steps) {
+  const range = (max - min) || 1;
+  const rawStep = range / maxCount;
+  const step = steps.find(s => s >= rawStep) || steps[steps.length - 1];
+  const start = Math.ceil(min / step) * step;
+  const ticks = [];
+  for (let v = start; v <= max + step * 1e-6; v += step) ticks.push(v);
+  return ticks;
+}
 function buildActivityAnalysis(a) {
   const chart = decimateChart(a.chart, 300);
   if (!chart || !chart.t || chart.t.length < 2) return '';
@@ -1545,11 +1554,13 @@ function buildActivityAnalysis(a) {
   const x = i => padL + (chart.t[i] / 60 / tMaxMin) * (w - padL - padR);
   const xAtMin = mins => padL + (mins / tMaxMin) * (w - padL - padR);
 
-  // ---- FC axis (izquierda) ----
-  const hrMin = Math.min(...hrVals, ZONE_BOUNDS[0] - 8);
-  const hrMax = Math.max(...hrVals, ZONE_BOUNDS[4] + 15);
+  // ---- FC axis (izquierda) — ajustado al rango REAL de FC de esta actividad, no a
+  // los límites de las zonas (que podían forzar el eje hasta 200 ppm aunque nunca se
+  // llegara a esa zona). Las bandas de zona se recortan igualmente al rango visible.
+  const hrMin = Math.min(...hrVals) - 6;
+  const hrMax = Math.max(...hrVals) + 8;
   const yHr = v => padT + (1 - (v - hrMin) / ((hrMax - hrMin) || 1)) * (h - padT - padB);
-  const hrTicks = Array.from({ length: 5 }, (_, i) => Math.round((hrMin + (hrMax-hrMin)*i/4) / 5) * 5);
+  const hrTicks = niceTicks(hrMin, hrMax, 4, [5,10,15,20,25,50,100]);
 
   // ---- Ritmo (derecha, invertido: más rápido arriba), recortando paradas/outliers ----
   const PACE_CAP = 900; // 15:00/km
@@ -1561,7 +1572,7 @@ function buildActivityAnalysis(a) {
     const pMin = Math.min(...paceVals), pMax = Math.max(...paceVals);
     const pSpan = (pMax - pMin) || 1;
     yPace = v => padT + ((Math.min(v, PACE_CAP) - pMin) / pSpan) * (h - padT - padB);
-    paceTicks = Array.from({ length: 5 }, (_, i) => pMin + pSpan*i/4);
+    paceTicks = niceTicks(pMin, pMax, 4, [15,30,60,120,300,600]);
   }
 
   // ---- Bandas de zona FC + etiquetas Z1..Z5 en el margen ----

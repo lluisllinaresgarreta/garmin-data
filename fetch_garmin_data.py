@@ -10,6 +10,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
+import requests
 from dotenv import load_dotenv
 from garminconnect import Garmin
 
@@ -344,6 +345,50 @@ def fetch_activity_extras(client: Garmin, activities_df: pd.DataFrame) -> dict:
 
 MPH_TO_KMH = 1.60934
 
+# Garmin's weather call only gives ONE wind reading per activity (a snapshot near
+# the start, from the nearest station) -- fine for a short run where wind barely
+# changes, but misleading for anything long enough to plausibly see the wind shift.
+# For activities over this threshold, also pull hourly wind from Open-Meteo's
+# forecast API (which keeps recent past days at low latency, unlike its ERA5-based
+# archive API) so the dashboard can show how it varied, alongside Garmin's own figure
+# for comparison. This is a bonus lookup: any failure just means wind_hourly stays
+# empty, never blocks the sync.
+LONG_ACTIVITY_WIND_MIN = 60
+OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
+
+
+def fetch_hourly_wind(lat, lon, start_dt, end_dt):
+    """Hourly wind speed/gust/direction from Open-Meteo covering [start_dt, end_dt]
+    (UTC). Returns [] on any error or if the window isn't covered by the response."""
+    try:
+        resp = requests.get(OPEN_METEO_URL, params={
+            "latitude": lat, "longitude": lon,
+            "hourly": "wind_speed_10m,wind_direction_10m,wind_gusts_10m",
+            "wind_speed_unit": "kmh", "timezone": "UTC", "past_days": 7,
+        }, timeout=10)
+        resp.raise_for_status()
+        hourly = resp.json().get("hourly", {})
+        times = hourly.get("time") or []
+        speeds = hourly.get("wind_speed_10m") or []
+        dirs = hourly.get("wind_direction_10m") or []
+        gusts = hourly.get("wind_gusts_10m") or []
+        out = []
+        for i, t in enumerate(times):
+            try:
+                ts = datetime.strptime(t, "%Y-%m-%dT%H:%M")
+            except ValueError:
+                continue
+            if start_dt - timedelta(hours=1) <= ts <= end_dt:
+                out.append({
+                    "hour": ts.strftime("%H:%M"),
+                    "wind_speed_kmh": round(speeds[i], 1) if i < len(speeds) and speeds[i] is not None else None,
+                    "wind_dir_deg": dirs[i] if i < len(dirs) else None,
+                    "wind_gust_kmh": round(gusts[i], 1) if i < len(gusts) and gusts[i] is not None else None,
+                })
+        return out
+    except Exception:
+        return []
+
 
 def fetch_activity_weather(client: Garmin, activities_df: pd.DataFrame) -> dict:
     """Temperature and wind (speed, gust, direction) per activity, where Garmin has
@@ -374,6 +419,21 @@ def fetch_activity_weather(client: Garmin, activities_df: pd.DataFrame) -> dict:
         wind_compass = w.get("windDirectionCompassPoint")
         if wind_compass:
             entry["wind_dir_compass"] = wind_compass.upper()
+
+        duration_min = row.get("duration_min")
+        lat, lon = w.get("latitude"), w.get("longitude")
+        if duration_min and duration_min > LONG_ACTIVITY_WIND_MIN and lat is not None and lon is not None:
+            start_raw = row.get("start_time_gmt")
+            if start_raw:
+                try:
+                    start_dt = datetime.strptime(str(start_raw)[:19], "%Y-%m-%d %H:%M:%S")
+                    end_dt = start_dt + timedelta(minutes=float(duration_min))
+                    hourly = fetch_hourly_wind(lat, lon, start_dt, end_dt)
+                    if hourly:
+                        entry["wind_hourly"] = hourly
+                except ValueError:
+                    pass
+
         if entry:
             weather[activity_id] = entry
     return weather

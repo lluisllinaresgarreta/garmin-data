@@ -118,6 +118,7 @@ def main():
         r["wind_gust_kmh"] = w.get("wind_gust_kmh")
         r["wind_dir_deg"] = w.get("wind_dir_deg")
         r["wind_dir_compass"] = w.get("wind_dir_compass")
+        r["wind_hourly"] = w.get("wind_hourly") or []
         series = series_raw.get(aid, {})
         r["km_splits"] = series.get("km_splits") or []
         r["hr_drift_pct"] = series.get("hr_drift_pct")

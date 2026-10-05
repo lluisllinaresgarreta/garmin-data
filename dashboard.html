@@ -1457,6 +1457,12 @@ function routeAvgBearingDeg(route) {
   if (avg < 0) avg += 360;
   return avg;
 }
+const COMPASS_POINTS = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+function degToCompass(deg) {
+  if (deg === null || deg === undefined || Number.isNaN(Number(deg))) return '';
+  const idx = (Math.round(deg / 22.5) % 16 + 16) % 16;
+  return COMPASS_POINTS[idx];
+}
 function windEffectLabel(a) {
   // windDirection from Garmin's weather API is the meteorological "from" bearing
   // (e.g. 0 = wind coming FROM the north), so it blows TOWARD (dir + 180).
@@ -1512,10 +1518,22 @@ function summaryGridHtml(a) {
   if (a.hr_drift_pct !== undefined && a.hr_drift_pct !== null && a.hr_drift_pct !== '') push('Deriva cardíaca', (a.hr_drift_pct > 0 ? '+' : '') + fmt(a.hr_drift_pct,1) + '%');
 
   if (a.temp_c !== undefined && a.temp_c !== null && a.temp_c !== '') push('Temperatura', fmt(a.temp_c,0) + ' °C');
+  const hasHourlyWind = a.wind_hourly && a.wind_hourly.length > 0;
   if (a.wind_speed_kmh !== undefined && a.wind_speed_kmh !== null) {
-    push('Viento', fmt(a.wind_speed_kmh,0) + ' km/h' + (a.wind_dir_compass ? ` del ${a.wind_dir_compass}` : '') + (a.wind_gust_kmh ? ` (ráfagas ${fmt(a.wind_gust_kmh,0)})` : ''));
+    push(hasHourlyWind ? 'Viento (Garmin)' : 'Viento', fmt(a.wind_speed_kmh,0) + ' km/h' + (a.wind_dir_compass ? ` del ${a.wind_dir_compass}` : '') + (a.wind_gust_kmh ? ` (ráfagas ${fmt(a.wind_gust_kmh,0)})` : ''));
     const effect = windEffectLabel(a);
     if (effect) push('Efecto del viento', effect);
+  }
+  if (hasHourlyWind) {
+    // Only for activities long enough to plausibly see the wind shift (see
+    // LONG_ACTIVITY_WIND_MIN in fetch_garmin_data.py) — an independent hour-by-hour
+    // reading from Open-Meteo, shown next to Garmin's own single snapshot above so
+    // they can be compared rather than silently replacing one with the other.
+    a.wind_hourly.forEach(h => {
+      if (h.wind_speed_kmh === null || h.wind_speed_kmh === undefined) return;
+      const compass = degToCompass(h.wind_dir_deg);
+      push(`Viento ${h.hour}`, fmt(h.wind_speed_kmh,0) + ' km/h' + (compass ? ` del ${compass}` : '') + (h.wind_gust_kmh ? ` (ráfagas ${fmt(h.wind_gust_kmh,0)})` : ''));
+    });
   }
 
   if (a.training_load) push('Carga', fmt(a.training_load,0));
@@ -1771,15 +1789,36 @@ function buildActivityAnalysis(a) {
     // Segment-by-segment wind effect: a looping/non-straight route faces the wind
     // differently at different points even though Garmin's wind reading is a single
     // snapshot for the whole activity, so colour each leg by ITS OWN bearing relative
-    // to the wind instead of the one averaged "Efecto del viento" figure.
+    // to the wind. For long activities with hourly wind data (see wind_hourly), the
+    // DIRECTION used per segment also follows the real clock time of that segment
+    // instead of one constant direction for the whole run.
     const haveWind = a.wind_dir_deg !== undefined && a.wind_dir_deg !== null && a.wind_speed_kmh > 0;
+    const hourlyWind = a.wind_hourly && a.wind_hourly.length > 1 ? a.wind_hourly : null;
     let segsWind = '';
     if (haveWind) {
-      const towardDeg = (a.wind_dir_deg + 180) % 360;
+      let distKmForWind = null, startMs = null;
+      if (hourlyWind && a.start_time_gmt) {
+        distKmForWind = cumulativeDistanceKm(chart);
+        startMs = Date.parse(a.start_time_gmt.replace(' ', 'T') + 'Z');
+      }
+      const windDirForDist = distM => {
+        if (!hourlyWind || !distKmForWind || startMs === null || Number.isNaN(startMs)) return a.wind_dir_deg;
+        let bestIdx = 0, bestDiff = Infinity;
+        for (let k = 0; k < distKmForWind.length; k++) {
+          const diff = Math.abs(distKmForWind[k] * 1000 - distM);
+          if (diff < bestDiff) { bestDiff = diff; bestIdx = k; }
+        }
+        const segDt = new Date(startMs + chart.t[bestIdx] * 1000);
+        const hh = String(segDt.getUTCHours()).padStart(2, '0') + ':00';
+        const bucket = hourlyWind.find(h => h.hour === hh) || hourlyWind[hourlyWind.length - 1];
+        return (bucket && bucket.wind_dir_deg != null) ? bucket.wind_dir_deg : a.wind_dir_deg;
+      };
       for (let i = 1; i < route.length; i++) {
-        const [lat0, lon0] = route[i-1];
-        const [lat1, lon1] = route[i];
+        const [lat0, lon0, , dist0] = route[i-1];
+        const [lat1, lon1, , dist1] = route[i];
         if (lat0 === lat1 && lon0 === lon1) continue;
+        const dirHere = windDirForDist(((dist0||0) + (dist1||0)) / 2);
+        const towardDeg = (dirHere + 180) % 360;
         const brg = bearingDeg(lat0, lon0, lat1, lon1);
         const rel = Math.abs(((towardDeg - brg + 540) % 360) - 180);
         const color = rel <= 50 ? 'var(--good)' : rel >= 130 ? 'var(--critical)' : 'var(--text-muted)';
@@ -1826,7 +1865,7 @@ function buildActivityAnalysis(a) {
       <span><span class="sw" style="background:var(--good);"></span>De cola</span>
       <span><span class="sw" style="background:var(--critical);"></span>De cara</span>
       <span><span class="sw" style="background:var(--text-muted);"></span>Lateral</span>
-      <span>${fmt(a.wind_speed_kmh,0)} km/h${a.wind_dir_compass ? ' del ' + a.wind_dir_compass : ''}</span>`;
+      <span>${hourlyWind ? 'viento variable por hora (Garmin: ' + fmt(a.wind_speed_kmh,0) + ' km/h)' : fmt(a.wind_speed_kmh,0) + ' km/h' + (a.wind_dir_compass ? ' del ' + a.wind_dir_compass : '')}</span>`;
     const mapToggle = haveWind ? `<div class="act-map-toggle">
       <button type="button" class="act-filter-tab active" data-map-mode="zone">Por zona FC</button>
       <button type="button" class="act-filter-tab" data-map-mode="wind">Por viento</button>

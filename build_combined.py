@@ -36,6 +36,39 @@ def muscle_group(category):
     return "Otro"
 
 
+def parse_strength_session(session):
+    """Per-set exercise/weight/reps plus total volume per muscle group for one
+    strength activity's raw exercise_sets.json entry. Shared by the per-activity
+    fields (muscle_group_volume, exercises) and the weekly strengthSessions list,
+    so both stay in sync from a single source of truth."""
+    exercises = []
+    group_volume = {}
+    for s in (session or {}).get("sets", []):
+        if s.get("setType") != "ACTIVE":
+            continue
+        exs = s.get("exercises") or []
+        category = exs[0].get("category") if exs else None
+        name = exs[0].get("name") if exs else None
+        reps = s.get("repetitionCount")
+        weight_kg = round(s["weight"] / 1000, 1) if s.get("weight") else None
+        group = muscle_group(category)
+        volume = (reps or 0) * (weight_kg or 0)
+        if group not in ("Calentamiento", "Enfriamiento", "Cardio", "Otro") or volume > 0:
+            group_volume[group] = group_volume.get(group, 0) + volume
+        exercises.append({
+            "category": category,
+            "name": name,
+            "reps": reps,
+            "weight_kg": weight_kg,
+            "volume_kg": round(volume, 1) if volume else None,
+            "muscle_group": group,
+        })
+    return {
+        "exercises": exercises,
+        "group_volume": {g: round(v, 1) for g, v in group_volume.items() if v > 0},
+    }
+
+
 def te_label(value):
     if value is None or value == "":
         return None
@@ -95,6 +128,7 @@ def main():
     extras_raw = load_json("activity_extras.json", {})
     weather_raw = load_json("activity_weather.json", {})
     series_raw = load_json("activity_series.json", {})
+    sets_raw = load_json("exercise_sets.json", {})
     glucose_raw = load_json("glucose.json", {"available": False, "reason": "not_fetched"})
     glucose_by_activity = glucose_raw.get("activities", {}) if glucose_raw.get("available") else {}
     for r in act_records:
@@ -138,6 +172,10 @@ def main():
         r["glucose_post_time"] = g.get("glucose_post_time") if g else None
         r["post_workout_hypos"] = g.get("post_workout_hypos") if g else []
         r["glucose_chart"] = g.get("glucose_chart") if g else None
+        if aid in sets_raw:
+            parsed = parse_strength_session(sets_raw[aid])
+            r["exercises"] = parsed["exercises"]
+            r["muscle_group_volume"] = parsed["group_volume"]
 
     daily = daily.sort_values("date")
     daily_records = daily.fillna("").to_dict(orient="records")
@@ -247,37 +285,16 @@ def main():
         })
     body_composition.sort(key=lambda x: x["date"] or "")
 
-    # Strength sessions: sets/reps/weight + volume per muscle group
-    sets_raw = load_json("exercise_sets.json", {})
+    # Strength sessions: sets/reps/weight + volume per muscle group (parsed once per
+    # activity above and attached to each record; reused here for the weekly list).
     strength_sessions = []
     for act_id, session in sets_raw.items():
-        exercises = []
-        group_volume = {}
-        for s in session.get("sets", []):
-            if s.get("setType") != "ACTIVE":
-                continue
-            exs = s.get("exercises") or []
-            category = exs[0].get("category") if exs else None
-            name = exs[0].get("name") if exs else None
-            reps = s.get("repetitionCount")
-            weight_kg = round(s["weight"] / 1000, 1) if s.get("weight") else None
-            group = muscle_group(category)
-            volume = (reps or 0) * (weight_kg or 0)
-            if group not in ("Calentamiento", "Enfriamiento", "Cardio", "Otro") or volume > 0:
-                group_volume[group] = group_volume.get(group, 0) + volume
-            exercises.append({
-                "category": category,
-                "name": name,
-                "reps": reps,
-                "weight_kg": weight_kg,
-                "volume_kg": round(volume, 1) if volume else None,
-                "muscle_group": group,
-            })
+        parsed = parse_strength_session(session)
         strength_sessions.append({
             "date": session.get("date"),
             "name": session.get("name"),
-            "exercises": exercises,
-            "group_volume": {g: round(v, 1) for g, v in group_volume.items() if v > 0},
+            "exercises": parsed["exercises"],
+            "group_volume": parsed["group_volume"],
         })
     strength_sessions.sort(key=lambda x: x["date"] or "", reverse=True)
 

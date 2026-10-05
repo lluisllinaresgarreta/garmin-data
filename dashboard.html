@@ -1541,6 +1541,10 @@ function summaryGridHtml(a) {
   if (a.training_effect_anaerobic !== undefined && a.training_effect_anaerobic !== null && a.training_effect_anaerobic !== '') push('TE anaeróbico', fmt(a.training_effect_anaerobic,1) + (a.te_anaerobic_label ? ' · ' + a.te_anaerobic_label : ''));
 
   if (a.type === 'strength_training') {
+    if (a.muscle_group_volume && Object.keys(a.muscle_group_volume).length) {
+      const groups = Object.entries(a.muscle_group_volume).sort((x,y) => y[1] - x[1]);
+      push('Grupos musculares', groups.map(([g,v]) => `${g} (${fmt(v,0)} kg)`).join(' · '));
+    }
     if (a.num_sets !== undefined && a.num_sets !== null) push('Series', fmt(a.num_sets,0));
     if (a.active_sec) push('Tiempo activo', fmtHMS(a.active_sec));
     if (a.rest_sec) push('Descanso entre series', fmtHMS(a.rest_sec));
@@ -2044,6 +2048,9 @@ function activityRowHtml(a) {
   if (cadenceChip) extras.push(`${fmt(cadenceChip,0)} spm`);
   if (a.type === 'running' && a.stride_length_cm) extras.push(`${fmt(a.stride_length_cm/100,2)} m/zancada`);
   if (a.training_load) extras.push(`carga ${fmt(a.training_load,0)}`);
+  const muscleChips = (a.type === 'strength_training' && a.muscle_group_volume)
+    ? Object.entries(a.muscle_group_volume).sort((x,y) => y[1] - x[1]).map(([g]) => `<span class="act-chip">${g}</span>`)
+    : [];
   const rpe = a.rpe !== undefined && a.rpe !== null && a.rpe !== '' ? Number(a.rpe) : null;
   const highEffortEasy = rpe !== null && rpe >= 7 && wasIntendedEasy(a);
   const evalChips = [];
@@ -2066,6 +2073,7 @@ function activityRowHtml(a) {
       <div class="act-chips">
         ${zoneEl}
         ${teChip}
+        ${muscleChips.join('')}
         ${extras.map(e=>`<span class="act-chip">${e}</span>`).join('')}
         ${evalChips.join('')}
         ${highEffortEasy ? `<span class="act-chip warn">Esfuerzo alto para sesión suave</span>` : ''}

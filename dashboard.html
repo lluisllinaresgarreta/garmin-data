@@ -1274,7 +1274,7 @@ function activityGlucoseHtml(a) {
 function buildGlucoseChart(a) {
   const gc = a.glucose_chart;
   if (!gc || !gc.series || gc.series.length < 2) return '';
-  const w = 600, h = 150, padL = 32, padR = 10, padT = 10, padB = 18;
+  const w = chartContainerWidth(), h = 150, padL = 32, padR = 10, padT = 10, padB = 18;
   const duration = gc.duration_min || 0;
   const tMin = -30, tMax = duration + 120;
   const span = (tMax - tMin) || 1;
@@ -1290,9 +1290,9 @@ function buildGlucoseChart(a) {
   const bandTop = y(Math.min(RANGE_HIGH, yMax));
   const bandBot = y(Math.max(RANGE_LOW, yMin));
   const bandSvg = `<rect x="${padL}" y="${bandTop.toFixed(1)}" width="${w-padL-padR}" height="${(bandBot-bandTop).toFixed(1)}" fill="var(--good)" opacity="0.10"/>`;
-  const refSvg = [RANGE_LOW, RANGE_HIGH].map(v => `<line x1="${padL}" x2="${w-padR}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="var(--text-muted)" stroke-width="1" stroke-dasharray="3,3"/><text x="${(padL-4).toFixed(1)}" y="${(y(v)+3).toFixed(1)}" text-anchor="end" font-size="8.5" fill="var(--text-muted)">${v}</text>`).join('');
+  const refSvg = [RANGE_LOW, RANGE_HIGH].map(v => `<line x1="${padL}" x2="${w-padR}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="var(--text-muted)" stroke-width="1" stroke-dasharray="3,3"/><text x="${(padL-4).toFixed(1)}" y="${(y(v)+3).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--text-muted)">${v}</text>`).join('');
   const yTicks = [yMin, yMin + (yMax-yMin)*0.5, yMax].filter(v => Math.abs(v-RANGE_LOW) > 8 && Math.abs(v-RANGE_HIGH) > 8);
-  const yAxisSvg = yTicks.map(v => `<text x="${(padL-4).toFixed(1)}" y="${(y(v)+3).toFixed(1)}" text-anchor="end" font-size="8.5" fill="var(--text-muted)">${fmt(v,0)}</text>`).join('');
+  const yAxisSvg = yTicks.map(v => `<text x="${(padL-4).toFixed(1)}" y="${(y(v)+3).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--text-muted)">${fmt(v,0)}</text>`).join('');
 
   const actX0 = x(0), actX1 = x(duration);
   const actSvg = `<rect x="${actX0.toFixed(1)}" y="${padT}" width="${(actX1-actX0).toFixed(1)}" height="${h-padT-padB}" fill="var(--accent)" opacity="0.1"/>`;
@@ -1318,7 +1318,7 @@ function buildGlucoseChart(a) {
   const xTicks = [];
   const xStep = span > 180 ? 60 : 30;
   for (let t = Math.ceil(tMin/xStep)*xStep; t <= tMax + 0.01; t += xStep) xTicks.push(t);
-  const xAxisSvg = xTicks.map(t => `<text x="${x(t).toFixed(1)}" y="${h-4}" text-anchor="middle" font-size="8.5" fill="var(--text-muted)">${t===0?'inicio':(t>0?'+':'')+Math.round(t)+"'"}</text>`).join('');
+  const xAxisSvg = xTicks.map(t => `<text x="${x(t).toFixed(1)}" y="${h-4}" text-anchor="middle" font-size="10" fill="var(--text-muted)">${t===0?'inicio':(t>0?'+':'')+Math.round(t)+"'"}</text>`).join('');
 
   const legendBits = [
     `<span><span class="sw" style="background:var(--accent)"></span>Glucosa</span>`,
@@ -1448,7 +1448,12 @@ function summaryGridHtml(a) {
   if (a.elevation_gain_m !== undefined && a.elevation_gain_m !== null && a.elevation_gain_m !== '') push('Desnivel +', fmt(a.elevation_gain_m,0) + ' m');
   if (a.elevation_loss_m !== undefined && a.elevation_loss_m !== null && a.elevation_loss_m !== '') push('Desnivel −', fmt(a.elevation_loss_m,0) + ' m');
 
-  if (a.cadence_spm) push('Cadencia media', fmt(a.cadence_spm,0) + ' spm');
+  if (a.avg_cadence_running) {
+    const totalDiffers = a.avg_cadence_total && Math.round(a.avg_cadence_total) !== Math.round(a.avg_cadence_running);
+    push('Cadencia media', fmt(a.avg_cadence_running,0) + ' spm' + (totalDiffers ? ` (total ${fmt(a.avg_cadence_total,0)})` : ''));
+  } else if (a.cadence_spm) {
+    push('Cadencia media', fmt(a.cadence_spm,0) + ' spm');
+  }
   if (a.stride_length_cm) push('Zancada', fmt(a.stride_length_cm/100,2) + ' m');
 
   if (a.avg_power_w) push('Potencia media', fmt(a.avg_power_w,0) + ' W');
@@ -1542,6 +1547,17 @@ function niceTicks(min, max, maxCount, steps) {
   for (let v = start; v <= max + step * 1e-6; v += step) ticks.push(v);
   return ticks;
 }
+function chartContainerWidth() {
+  // SVGs here use viewBox="0 0 w h" + CSS width:100%, so 1 user-unit renders at
+  // (real css px width / w) px. On narrow screens w=600 made that ratio ~0.55,
+  // shrinking every font-size inside the chart well below its nominal value. Sizing
+  // w to the actual rendered width instead keeps 1 user-unit ≈ 1 real px everywhere.
+  const el = document.getElementById('actList');
+  const cw = el && el.clientWidth;
+  if (!cw) return 600;
+  const narrow = cw <= 480;
+  return Math.max(260, cw - 28 - (narrow ? 0 : 46)); // .act-item padding + .act-detail indent
+}
 function buildActivityAnalysis(a) {
   const chart = decimateChart(a.chart, 300);
   if (!chart || !chart.t || chart.t.length < 2) return '';
@@ -1550,7 +1566,7 @@ function buildActivityAnalysis(a) {
 
   const n = chart.t.length;
   const tMaxMin = chart.t[n-1] / 60 || 1;
-  const w = 600, h = 190, padL = 36, padR = 36, padT = 14, padB = 24;
+  const w = chartContainerWidth(), h = 190, padL = 36, padR = 36, padT = 14, padB = 24;
   const x = i => padL + (chart.t[i] / 60 / tMaxMin) * (w - padL - padR);
   const xAtMin = mins => padL + (mins / tMaxMin) * (w - padL - padR);
 
@@ -1625,10 +1641,10 @@ function buildActivityAnalysis(a) {
   let xAxisSvg = '';
   for (let m = 0; m <= tMaxMin + 0.01; m += xStep) {
     const xp = xAtMin(m);
-    xAxisSvg += `<line x1="${xp.toFixed(1)}" x2="${xp.toFixed(1)}" y1="${h-padB}" y2="${h-padB+3}" stroke="var(--text-muted)"/><text x="${xp.toFixed(1)}" y="${h-4}" text-anchor="middle" font-size="9" fill="var(--text-muted)">${Math.round(m)}'</text>`;
+    xAxisSvg += `<line x1="${xp.toFixed(1)}" x2="${xp.toFixed(1)}" y1="${h-padB}" y2="${h-padB+3}" stroke="var(--text-muted)"/><text x="${xp.toFixed(1)}" y="${h-4}" text-anchor="middle" font-size="10" fill="var(--text-muted)">${Math.round(m)}'</text>`;
   }
-  const hrAxisSvg = hrTicks.map(v => `<text x="${(padL-4).toFixed(1)}" y="${(yHr(v)+3).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--text-muted)">${v}</text>`).join('');
-  const paceAxisSvg = havePace ? paceTicks.map(v => `<text x="${(w-padR+4).toFixed(1)}" y="${(yPace(v)+3).toFixed(1)}" font-size="9" fill="var(--text-muted)">${fmtPace(v).replace('/km','')}</text>`).join('') : '';
+  const hrAxisSvg = hrTicks.map(v => `<text x="${(padL-4).toFixed(1)}" y="${(yHr(v)+3).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--text-muted)">${v}</text>`).join('');
+  const paceAxisSvg = havePace ? paceTicks.map(v => `<text x="${(w-padR+4).toFixed(1)}" y="${(yPace(v)+3).toFixed(1)}" font-size="10" fill="var(--text-muted)">${fmtPace(v).replace('/km','')}</text>`).join('') : '';
 
   const legendBits = [`<span><span class="sw" style="background:var(--critical)"></span>FC (ppm)</span>`];
   if (havePace) legendBits.push(`<span><span class="sw" style="background:var(--accent)"></span>Ritmo (min/km)</span>`);
@@ -1867,7 +1883,8 @@ function activityRowHtml(a) {
   const teLabel = a.te_aerobic_label;
   const teChip = teLabel ? `<span class="te-chip" style="--tec:${TE_COLOR[teLabel]||'var(--text-muted)'}">${teLabel}</span>` : '';
   const extras = [];
-  if (a.type === 'running' && a.cadence_spm) extras.push(`${fmt(a.cadence_spm,0)} spm`);
+  const cadenceChip = a.type === 'running' ? (a.avg_cadence_running || a.cadence_spm) : null;
+  if (cadenceChip) extras.push(`${fmt(cadenceChip,0)} spm`);
   if (a.type === 'running' && a.stride_length_cm) extras.push(`${fmt(a.stride_length_cm/100,2)} m/zancada`);
   if (a.training_load) extras.push(`carga ${fmt(a.training_load,0)}`);
   const rpe = a.rpe !== undefined && a.rpe !== null && a.rpe !== '' ? Number(a.rpe) : null;

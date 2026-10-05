@@ -342,8 +342,13 @@ def fetch_activity_extras(client: Garmin, activities_df: pd.DataFrame) -> dict:
     return extras
 
 
+MPH_TO_KMH = 1.60934
+
+
 def fetch_activity_weather(client: Garmin, activities_df: pd.DataFrame) -> dict:
-    """Temperature (Celsius) per activity, where Garmin has weather data (outdoor only)."""
+    """Temperature and wind (speed, gust, direction) per activity, where Garmin has
+    weather data (outdoor only). windDirection is the meteorological "from" bearing
+    in degrees (0=N, 90=E, ...), matching the raw Garmin Connect weather response."""
     weather = {}
     for _, row in activities_df.iterrows():
         activity_id = str(row["activity_id"])
@@ -351,10 +356,26 @@ def fetch_activity_weather(client: Garmin, activities_df: pd.DataFrame) -> dict:
             w = client.get_activity_weather(activity_id)
         except Exception:
             continue
-        temp_f = w.get("temp") if w else None
-        if temp_f is None:
+        if not w:
             continue
-        weather[activity_id] = {"temp_c": round((temp_f - 32) * 5 / 9, 1)}
+        entry = {}
+        temp_f = w.get("temp")
+        if temp_f is not None:
+            entry["temp_c"] = round((temp_f - 32) * 5 / 9, 1)
+        wind_speed_mph = w.get("windSpeed")
+        if wind_speed_mph is not None:
+            entry["wind_speed_kmh"] = round(wind_speed_mph * MPH_TO_KMH, 1)
+        wind_gust_mph = w.get("windGust")
+        if wind_gust_mph is not None:
+            entry["wind_gust_kmh"] = round(wind_gust_mph * MPH_TO_KMH, 1)
+        wind_dir_deg = w.get("windDirection")
+        if wind_dir_deg is not None:
+            entry["wind_dir_deg"] = wind_dir_deg
+        wind_compass = w.get("windDirectionCompassPoint")
+        if wind_compass:
+            entry["wind_dir_compass"] = wind_compass.upper()
+        if entry:
+            weather[activity_id] = entry
     return weather
 
 

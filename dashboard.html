@@ -1420,6 +1420,49 @@ function fastestSlowestSplit(splits) {
   full.forEach(s => { if (s.pace_sec_km < fastest.pace_sec_km) fastest = s; if (s.pace_sec_km > slowest.pace_sec_km) slowest = s; });
   return { fastest, slowest };
 }
+function bearingDeg(lat0, lon0, lat1, lon1) {
+  const toRad = d => d * Math.PI / 180;
+  const y = Math.sin(toRad(lon1 - lon0)) * Math.cos(toRad(lat1));
+  const x = Math.cos(toRad(lat0)) * Math.sin(toRad(lat1)) - Math.sin(toRad(lat0)) * Math.cos(toRad(lat1)) * Math.cos(toRad(lon1 - lon0));
+  let brg = Math.atan2(y, x) * 180 / Math.PI;
+  if (brg < 0) brg += 360;
+  return brg;
+}
+function routeAvgBearingDeg(route) {
+  // Distance-weighted average heading over the whole route (vector mean of each
+  // segment's bearing), so a curved or looping route still gets one representative
+  // "direction you were mostly facing" instead of just the start→end straight line.
+  if (!route || route.length < 2) return null;
+  let sx = 0, sy = 0, totalW = 0;
+  for (let i = 1; i < route.length; i++) {
+    const [lat0, lon0, , dist0] = route[i-1];
+    const [lat1, lon1, , dist1] = route[i];
+    if (lat0 === lat1 && lon0 === lon1) continue;
+    const segDist = (dist1 != null && dist0 != null) ? (dist1 - dist0) : null;
+    const w = (segDist && segDist > 0) ? segDist : 1;
+    const brg = bearingDeg(lat0, lon0, lat1, lon1);
+    sx += w * Math.sin(brg * Math.PI / 180);
+    sy += w * Math.cos(brg * Math.PI / 180);
+    totalW += w;
+  }
+  if (totalW === 0) return null;
+  let avg = Math.atan2(sx, sy) * 180 / Math.PI;
+  if (avg < 0) avg += 360;
+  return avg;
+}
+function windEffectLabel(a) {
+  // windDirection from Garmin's weather API is the meteorological "from" bearing
+  // (e.g. 0 = wind coming FROM the north), so it blows TOWARD (dir + 180).
+  if (a.wind_dir_deg === undefined || a.wind_dir_deg === null || !a.wind_speed_kmh) return '';
+  const heading = routeAvgBearingDeg(a.route);
+  if (heading === null) return '';
+  const towardDeg = (a.wind_dir_deg + 180) % 360;
+  const rel = Math.abs(((towardDeg - heading + 540) % 360) - 180); // 0 = pure tailwind, 180 = pure headwind
+  const component = Math.abs(a.wind_speed_kmh * Math.cos(rel * Math.PI / 180));
+  if (rel <= 50) return `De cola — empujando ~${fmt(component,0)} km/h`;
+  if (rel >= 130) return `De cara — frenando ~${fmt(component,0)} km/h`;
+  return `Lateral — poco efecto directo`;
+}
 function summaryGridHtml(a) {
   const stats = [];
   const push = (label, value) => { if (value !== null && value !== undefined && value !== '') stats.push([label, value]); };
@@ -1460,6 +1503,13 @@ function summaryGridHtml(a) {
   if (a.max_power_w) push('Potencia máx.', fmt(a.max_power_w,0) + ' W');
 
   if (a.hr_drift_pct !== undefined && a.hr_drift_pct !== null && a.hr_drift_pct !== '') push('Deriva cardíaca', (a.hr_drift_pct > 0 ? '+' : '') + fmt(a.hr_drift_pct,1) + '%');
+
+  if (a.temp_c !== undefined && a.temp_c !== null && a.temp_c !== '') push('Temperatura', fmt(a.temp_c,0) + ' °C');
+  if (a.wind_speed_kmh !== undefined && a.wind_speed_kmh !== null) {
+    push('Viento', fmt(a.wind_speed_kmh,0) + ' km/h' + (a.wind_dir_compass ? ` del ${a.wind_dir_compass}` : '') + (a.wind_gust_kmh ? ` (ráfagas ${fmt(a.wind_gust_kmh,0)})` : ''));
+    const effect = windEffectLabel(a);
+    if (effect) push('Efecto del viento', effect);
+  }
 
   if (a.training_load) push('Carga', fmt(a.training_load,0));
   if (a.training_effect_aerobic !== undefined && a.training_effect_aerobic !== null && a.training_effect_aerobic !== '') push('TE aeróbico', fmt(a.training_effect_aerobic,1) + (a.te_aerobic_label ? ' · ' + a.te_aerobic_label : ''));

@@ -112,7 +112,12 @@ def main():
         r["avg_power_w"] = extra.get("avg_power_w")
         r["max_power_w"] = extra.get("max_power_w")
         r["avg_speed_kmh"] = extra.get("avg_speed_kmh")
-        r["temp_c"] = weather_raw.get(aid, {}).get("temp_c")
+        w = weather_raw.get(aid, {})
+        r["temp_c"] = w.get("temp_c")
+        r["wind_speed_kmh"] = w.get("wind_speed_kmh")
+        r["wind_gust_kmh"] = w.get("wind_gust_kmh")
+        r["wind_dir_deg"] = w.get("wind_dir_deg")
+        r["wind_dir_compass"] = w.get("wind_dir_compass")
         series = series_raw.get(aid, {})
         r["km_splits"] = series.get("km_splits") or []
         r["hr_drift_pct"] = series.get("hr_drift_pct")

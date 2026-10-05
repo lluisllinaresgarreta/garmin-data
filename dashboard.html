@@ -399,6 +399,8 @@
   .act-chart-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 6px; font-size: 10.5px; color: var(--text-secondary); }
   .act-chart-legend .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
   .act-route-wrap { margin-top: 12px; max-width: 340px; position: relative; }
+  .act-map-toggle { display: flex; gap: 6px; margin-bottom: 8px; }
+  .act-map-toggle .act-filter-tab { padding: 5px 10px; font-size: 11px; }
   .act-route-wrap svg { width: 100%; height: auto; display: block; background: var(--surface-sunken); border-radius: 10px; }
   .act-detail-empty { font-size: 12px; color: var(--text-muted); font-style: italic; }
 
@@ -1759,6 +1761,25 @@ function buildActivityAnalysis(a) {
       segs += `<line x1="${px(lon0).toFixed(1)}" y1="${py(lat0).toFixed(1)}" x2="${px(lon1).toFixed(1)}" y2="${py(lat1).toFixed(1)}" stroke="${color}" stroke-width="3" stroke-linecap="round"/>`;
     }
 
+    // Segment-by-segment wind effect: a looping/non-straight route faces the wind
+    // differently at different points even though Garmin's wind reading is a single
+    // snapshot for the whole activity, so colour each leg by ITS OWN bearing relative
+    // to the wind instead of the one averaged "Efecto del viento" figure.
+    const haveWind = a.wind_dir_deg !== undefined && a.wind_dir_deg !== null && a.wind_speed_kmh > 0;
+    let segsWind = '';
+    if (haveWind) {
+      const towardDeg = (a.wind_dir_deg + 180) % 360;
+      for (let i = 1; i < route.length; i++) {
+        const [lat0, lon0] = route[i-1];
+        const [lat1, lon1] = route[i];
+        if (lat0 === lat1 && lon0 === lon1) continue;
+        const brg = bearingDeg(lat0, lon0, lat1, lon1);
+        const rel = Math.abs(((towardDeg - brg + 540) % 360) - 180);
+        const color = rel <= 50 ? 'var(--good)' : rel >= 130 ? 'var(--critical)' : 'var(--text-muted)';
+        segsWind += `<line x1="${px(lon0).toFixed(1)}" y1="${py(lat0).toFixed(1)}" x2="${px(lon1).toFixed(1)}" y2="${py(lat1).toFixed(1)}" stroke="${color}" stroke-width="3" stroke-linecap="round"/>`;
+      }
+    }
+
     const totalDist = route[route.length - 1][3];
     const kmMarkers = [];
     if (totalDist) {
@@ -1794,17 +1815,34 @@ function buildActivityAnalysis(a) {
       const lo = ZONE_BOUNDS[z-1], hi = z < 5 ? ZONE_BOUNDS[z]-1 : null;
       return `<span><span class="sw" style="background:${ZONE_COLORS[z]}"></span>Z${z} ${lo}${hi===null?'+':'–'+hi}</span>`;
     }).join('');
+    const windLegend = `
+      <span><span class="sw" style="background:var(--good);"></span>De cola</span>
+      <span><span class="sw" style="background:var(--critical);"></span>De cara</span>
+      <span><span class="sw" style="background:var(--text-muted);"></span>Lateral</span>
+      <span>${fmt(a.wind_speed_kmh,0)} km/h${a.wind_dir_compass ? ' del ' + a.wind_dir_compass : ''}</span>`;
+    const mapToggle = haveWind ? `<div class="act-map-toggle">
+      <button type="button" class="act-filter-tab active" data-map-mode="zone">Por zona FC</button>
+      <button type="button" class="act-filter-tab" data-map-mode="wind">Por viento</button>
+    </div>` : '';
 
     routeBlock = `<div class="act-route-wrap">
+      ${mapToggle}
       <svg viewBox="0 0 ${rw} ${rh}" id="${chartId}-map">
-        ${segs}${markers}${startEndSvg}${scaleBarSvg}
+        <g id="${chartId}-map-zone">${segs}</g>
+        ${haveWind ? `<g id="${chartId}-map-wind" style="display:none">${segsWind}</g>` : ''}
+        ${markers}${startEndSvg}${scaleBarSvg}
         <circle class="chart-hover-dot" id="${chartId}-map-d" r="5.5" fill="none" stroke="var(--text-primary)" stroke-width="2"/>
       </svg>
-      <div class="act-chart-legend">
+      <div class="act-chart-legend" id="${chartId}-map-legend-zone">
         <span><span class="sw" style="background:var(--good);border-radius:50%;"></span>Salida</span>
         <span><span class="sw" style="background:var(--critical);"></span>Llegada${sameStartEnd?' (= salida)':''}</span>
         ${zoneLegend}
       </div>
+      ${haveWind ? `<div class="act-chart-legend" id="${chartId}-map-legend-wind" style="display:none">
+        <span><span class="sw" style="background:var(--good);border-radius:50%;"></span>Salida</span>
+        <span><span class="sw" style="background:var(--critical);"></span>Llegada${sameStartEnd?' (= salida)':''}</span>
+        ${windLegend}
+      </div>` : ''}
       <div class="chart-tip" id="${chartId}-map-tip"></div>
     </div>`;
     routeCtx = { route, px, py };
@@ -1825,6 +1863,26 @@ function buildActivityAnalysis(a) {
     const elevForAlt = haveAlt ? chart.elevation_m.filter(v => v !== null) : [];
     const eMin2 = haveAlt ? Math.min(...elevForAlt) : 0, eMax2 = haveAlt ? Math.max(...elevForAlt) : 0;
     const distKm = routeCtx ? cumulativeDistanceKm(chart) : null;
+
+    const mapSvg = document.getElementById(chartId+'-map');
+    if (mapSvg) {
+      const wrap = mapSvg.parentElement;
+      const toggleBtns = wrap ? wrap.querySelectorAll('.act-map-toggle button') : [];
+      const zoneG = document.getElementById(chartId+'-map-zone');
+      const windG = document.getElementById(chartId+'-map-wind');
+      const legendZone = document.getElementById(chartId+'-map-legend-zone');
+      const legendWind = document.getElementById(chartId+'-map-legend-wind');
+      toggleBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const mode = btn.dataset.mapMode;
+          toggleBtns.forEach(b => b.classList.toggle('active', b === btn));
+          if (zoneG) zoneG.style.display = mode === 'zone' ? '' : 'none';
+          if (windG) windG.style.display = mode === 'wind' ? '' : 'none';
+          if (legendZone) legendZone.style.display = mode === 'zone' ? '' : 'none';
+          if (legendWind) legendWind.style.display = mode === 'wind' ? '' : 'none';
+        });
+      });
+    }
 
     function updateHover(idx) {
       idx = Math.max(0, Math.min(n-1, idx));

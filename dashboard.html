@@ -174,6 +174,8 @@
     padding: 3px 9px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.04em;
   }
   .badge.good { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); }
+  .badge.warning { background: color-mix(in srgb, var(--warning) 16%, transparent); color: var(--warning); }
+  .badge.critical { background: color-mix(in srgb, var(--critical) 16%, transparent); color: var(--critical); }
   .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
   .acute-chronic { display: flex; gap: 18px; margin-top: 14px; }
   .ac-item { flex: 1; }
@@ -441,8 +443,21 @@
   .exercise-sets-table { font-size: 11px; }
   .exercise-sets-table td { padding: 3px 8px 3px 20px; border-top: 1px solid var(--border); }
   .set-warmup { opacity: 0.5; }
-  @media (max-width: 420px) {
-    .exercise-table .rm-col { display: none; }
+  /* Below 480px a 5-column row doesn't fit without clipping, so collapse each
+     exercise into 2 plain-text lines instead: name on its own line, then the
+     rest inline with separators — never a fixed-width column to overflow. */
+  @media (max-width: 480px) {
+    .exercise-table thead { display: none; }
+    .exercise-table, .exercise-table tbody { display: block; width: 100%; }
+    .exercise-table .exercise-row { display: block; padding: 7px 4px; border-top: 1px solid var(--border); }
+    .exercise-table .exercise-row td { display: inline; border: none; padding: 0; white-space: normal; font-size: 12px; }
+    .exercise-table .exercise-row td:first-child { display: block; font-weight: 600; margin-bottom: 2px; }
+    .exercise-table .exercise-row td:not(:first-child) { color: var(--text-secondary); }
+    .exercise-table .exercise-row td:nth-child(2)::after,
+    .exercise-table .exercise-row td:nth-child(3)::after,
+    .exercise-table .exercise-row td:nth-child(4)::after { content: ' · '; color: var(--text-muted); }
+    .exercise-table .exercise-sets-wrap:not([hidden]) { display: block; }
+    .exercise-table .exercise-sets-wrap > td { display: block; padding: 0; }
   }
 
   /* Planificador semanal */
@@ -571,11 +586,12 @@
   .ra-stat { background: var(--surface-sunken); border: 1px solid var(--border); border-radius: 10px; padding: 7px 11px; min-width: 80px; }
   .ra-stat .rl { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
   .ra-stat .rv { font-size: 13.5px; font-weight: 700; font-family: "Bricolage Grotesque", system-ui, sans-serif; margin-top: 2px; }
-  .ra-km-bars { display: flex; gap: 4px; align-items: flex-end; height: 70px; margin: 10px 0; }
+  .ra-km-bars { display: flex; gap: 4px; align-items: flex-end; height: 86px; margin: 10px 0; }
   .ra-km-bars .kb { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 3px; height: 100%; }
   .ra-km-bars .kb .bar { width: 100%; max-width: 26px; border-radius: 3px 3px 0 0; background: var(--accent); }
   .ra-km-bars .kb .bar.partial { opacity: 0.5; }
   .ra-km-bars .kb .lab { font-size: 9px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .ra-km-bars .kb .pace-lab { font-size: 8.5px; color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .ra-coach-compare { font-size: 12px; color: var(--text-secondary); background: var(--surface-sunken); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; margin-top: 4px; }
   .ra-compliant { color: var(--good); font-weight: 600; }
   .ra-partial-compliance { color: var(--warning); font-weight: 600; }
@@ -825,6 +841,34 @@ const strengthActivities = DATA.activities.filter(a => a.type === 'strength_trai
 const splitsEntries = Object.values(DATA.runSplits).sort((a,b) => a.date < b.date ? 1 : -1);
 const refEntry = splitsEntries.find(e => /referencia/i.test(e.name)) || splitsEntries[0];
 const buildEntry = splitsEntries.find(e => e !== refEntry && e.active_laps.length > 1);
+const todayStr = new Date().toISOString().slice(0, 10);
+const coachPlan = (DATA.coachPlan || []).slice().sort((a, b) => (a.date < b.date ? -1 : 1));
+const STEP_TYPE_LABEL = { warmup: 'Calent.', cooldown: 'Enfr.', interval: 'Tramo', recovery: 'Recup.', rest: 'Descanso', repeat: 'Repite', other: 'Libre' };
+function stepShortLabel(step) {
+  const desc = (step.description || '').toLowerCase();
+  if (step.type === 'interval') {
+    if (desc.includes('opcional')) return 'Opcional';
+    if (desc.includes('fácil') || desc.includes('facil')) return 'Fácil';
+    if (desc.includes('rápido') || desc.includes('rapido')) return 'Rápido';
+    if (desc.includes('umbral')) return 'Umbral';
+    if (desc.includes('tempo')) return 'Tempo';
+  }
+  return STEP_TYPE_LABEL[step.type] || step.type || '';
+}
+function findCoachStepsForRun(entryDate) {
+  const planDay = coachPlan.find(w => w.date === entryDate && w.sport === 'running');
+  const steps = planDay && planDay.detail && planDay.detail.steps ? planDay.detail.steps : null;
+  if (!steps || !steps.length) return null;
+  const flat = [];
+  steps.forEach(s => {
+    if (s.type === 'repeat' && s.steps && s.steps.length) {
+      for (let i = 0; i < (s.iterations || 1); i++) s.steps.forEach(inner => flat.push(inner));
+    } else {
+      flat.push(s);
+    }
+  });
+  return flat;
+}
 
 function fmtRecoveryMinutes(min) {
   if (min === '' || min === undefined || min === null) return '—';
@@ -853,26 +897,55 @@ document.getElementById('tiles').innerHTML = tiles.map(t => `
 const lb = DATA.loadBalance;
 const runCount = runActivities.length;
 const totalRunKm = runActivities.reduce((s,a)=>s+Number(a.distance_km||0),0);
+const yogaCount = DATA.activities.filter(a => a.type === 'yoga').length;
+const vsPhraseParts = [];
+if (strengthActivities.length) vsPhraseParts.push(`${strengthActivities.length} sesiones de fuerza`);
+if (yogaCount) vsPhraseParts.push(`${yogaCount} de yoga`);
+const vsPhrase = vsPhraseParts.length ? ` frente a ${vsPhraseParts.join(' y ')}` : '';
 
-// Detect strength sessions same-day or day-before a quality run (TE aerobic >= 2.5)
-const qualityRuns = runActivities.filter(a => Number(a.training_effect_aerobic || 0) >= 2.5);
 const dateMinus1 = (iso) => { const d = new Date(iso); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); };
-const proximityHit = qualityRuns.find(run =>
+function isWithinLastDays(dateStr, days) {
+  return (new Date(todayStr) - new Date(dateStr)) / 86400000 <= days;
+}
+
+// Detect strength sessions same-day or day-before a quality run (TE aerobic >= 2.5).
+// Only surfaced if it's recent (last 7 days) AND not already contradicted by 2+ later
+// quality runs that DID keep good spacing — otherwise it's stale advice.
+const qualityRuns = runActivities.filter(a => Number(a.training_effect_aerobic || 0) >= 2.5);
+const proximityHitRaw = qualityRuns.find(run =>
   strengthActivities.some(s => s.date === run.date || s.date === dateMinus1(run.date))
 );
+let proximityHit = null;
+if (proximityHitRaw && isWithinLastDays(proximityHitRaw.date, 7)) {
+  const laterContradicting = qualityRuns.filter(r => r.date > proximityHitRaw.date &&
+    !strengthActivities.some(s => s.date === r.date || s.date === dateMinus1(r.date)));
+  if (laterContradicting.length < 2) proximityHit = proximityHitRaw;
+}
+
+// What today's plan actually calls for, so the readiness insight never tells you to
+// go hard on a day Coach has down as strength or rest.
+const todayPlan = coachPlan.filter(w => w.date === todayStr);
+const todayPlanHasRun = todayPlan.some(w => w.sport === 'running');
+const todayPlanHasStrength = todayPlan.some(w => w.sport === 'strength_training');
 
 const insights = [
   {
     tone: 'warning',
-    html: `Tu <strong>carga aeróbica de baja intensidad</strong> (${fmt(lb.monthlyLoadAerobicLow,0)}) está por debajo del rango objetivo de Garmin (${lb.monthlyLoadAerobicLowTargetMin}–${lb.monthlyLoadAerobicLowTargetMax}). Con ${runCount} carreras (${fmt(totalRunKm,1)} km) frente a más sesiones de fuerza y yoga, añadir rodajes suaves en Z2 ayudaría a construir la base del 10K.`
+    html: `Tu <strong>carga aeróbica de baja intensidad</strong> (${fmt(lb.monthlyLoadAerobicLow,0)}) está por debajo del rango objetivo de Garmin (${lb.monthlyLoadAerobicLowTargetMin}–${lb.monthlyLoadAerobicLowTargetMax}). Con ${runCount} carreras (${fmt(totalRunKm,1)} km)${vsPhrase}, añadir rodajes suaves en Z2 ayudaría a construir la base del 10K.`
   },
   {
     tone: lastReadiness.training_readiness >= 70 ? 'good' : lastReadiness.training_readiness >= 40 ? 'neutral' : 'warning',
     html: lastReadiness.training_readiness !== undefined && lastReadiness.training_readiness !== ''
       ? (() => {
           const recovMin = Number(lastReadiness.recovery_time_minutes);
-          const recovPhrase = recovMin <= 5 ? 'ya sin tiempo de recuperación pendiente' : `con ${fmtRecoveryMinutes(recovMin).toLowerCase()} de recuperación estimada todavía`;
-          const advice = lastReadiness.training_readiness >= 70 ? 'buen día para una sesión de calidad.' : lastReadiness.training_readiness >= 40 ? 'un día para intensidad moderada, sin forzar.' : 'mejor priorizar descanso o algo suave hoy.';
+          const hadActivityYesterday = DATA.activities.some(a => a.date === dateMinus1(lastReadiness.date || last.date));
+          const recovPhrase = recovMin <= 5 ? 'ya sin tiempo de recuperación pendiente'
+            : hadActivityYesterday ? `tras el entreno de ayer, con ${fmtRecoveryMinutes(recovMin).toLowerCase()} de recuperación estimada todavía`
+            : `con ${fmtRecoveryMinutes(recovMin).toLowerCase()} de recuperación estimada todavía`;
+          let advice;
+          if (!todayPlan.length) advice = 'hoy toca descanso según tu plan.';
+          else if (todayPlanHasStrength && !todayPlanHasRun) advice = `hoy toca ${todayPlan[0].title ? '"' + todayPlan[0].title + '"' : 'fuerza'} según Coach, no una sesión de carrera.`;
+          else advice = lastReadiness.training_readiness >= 70 ? 'buen día para una sesión de calidad.' : lastReadiness.training_readiness >= 40 ? 'un día para intensidad moderada, sin forzar.' : 'mejor priorizar descanso o algo suave hoy.';
           return `Tu <strong>Training Readiness de hoy es ${fmt(lastReadiness.training_readiness,0)} (${readinessLevel(lastReadiness.training_readiness)})</strong>, ${recovPhrase} — ${advice}`;
         })()
       : `Aún no hay suficiente historial para calcular tu Training Readiness diario — debería aparecer en los próximos días de uso.`
@@ -892,7 +965,7 @@ const insights = [
 ];
 
 // Correlate self-evaluation (feel/RPE) with real HR zones for the most recent case
-// where an "easy" session actually ran hard.
+// where an "easy" session actually ran hard. Same 7-day + contradiction rule as above.
 function zonePctBreakdown(hrZones) {
   if (!hrZones || !hrZones.length) return null;
   const total = hrZones.reduce((s,z) => s + (z.secs||0), 0);
@@ -901,10 +974,19 @@ function zonePctBreakdown(hrZones) {
   hrZones.forEach(z => { if ((z.secs||0) > (best.secs||0)) best = z; });
   return { zone: best.zone, pct: Math.round((best.secs||0) / total * 100) };
 }
-const flaggedEffortRun = runActivities.find(a => {
+const flaggedEffortRunRaw = runActivities.find(a => {
   const rpe = a.rpe !== undefined && a.rpe !== null && a.rpe !== '' ? Number(a.rpe) : null;
   return rpe !== null && rpe >= 7 && wasIntendedEasy(a) && a.hr_zones && a.hr_zones.length;
 });
+let flaggedEffortRun = null;
+if (flaggedEffortRunRaw && isWithinLastDays(flaggedEffortRunRaw.date, 7)) {
+  const laterEasyRuns = runActivities.filter(a => a.date > flaggedEffortRunRaw.date && wasIntendedEasy(a));
+  const contradicting = laterEasyRuns.filter(a => {
+    const rpe = a.rpe !== undefined && a.rpe !== null && a.rpe !== '' ? Number(a.rpe) : null;
+    return !(rpe !== null && rpe >= 7);
+  });
+  if (contradicting.length < 2) flaggedEffortRun = flaggedEffortRunRaw;
+}
 if (flaggedEffortRun) {
   const bd = zonePctBreakdown(flaggedEffortRun.hr_zones);
   if (bd) {
@@ -915,8 +997,14 @@ if (flaggedEffortRun) {
   }
 }
 
-// HR drift over 5% in a session meant to be easy
-const driftRun = runActivities.find(a => wasIntendedEasy(a) && a.hr_drift_pct !== undefined && a.hr_drift_pct !== null && a.hr_drift_pct !== '' && Number(a.hr_drift_pct) > 5);
+// HR drift over 5% in a session meant to be easy. Same 7-day + contradiction rule.
+const driftRunRaw = runActivities.find(a => wasIntendedEasy(a) && a.hr_drift_pct !== undefined && a.hr_drift_pct !== null && a.hr_drift_pct !== '' && Number(a.hr_drift_pct) > 5);
+let driftRun = null;
+if (driftRunRaw && isWithinLastDays(driftRunRaw.date, 7)) {
+  const laterEasyRuns = runActivities.filter(a => a.date > driftRunRaw.date && wasIntendedEasy(a) && a.hr_drift_pct !== undefined && a.hr_drift_pct !== null && a.hr_drift_pct !== '');
+  const contradicting = laterEasyRuns.filter(a => Number(a.hr_drift_pct) <= 5);
+  if (contradicting.length < 2) driftRun = driftRunRaw;
+}
 if (driftRun) {
   insights.push({
     tone: 'warning',
@@ -974,12 +1062,15 @@ if (refEntry && refEntry.active_laps.length) {
 }
 if (buildEntry && buildEntry.active_laps.length > 1) {
   const maxPace = Math.max(...buildEntry.active_laps.map(l => l.pace_sec_km));
+  const coachSteps = findCoachStepsForRun(buildEntry.date);
+  const useSteps = coachSteps && coachSteps.length === buildEntry.active_laps.length;
   refHtml += `
-    <div class="track-note" style="margin-top:14px;">Progresión de tramos — ${buildEntry.name} (${fmtDateShort(buildEntry.date)})</div>
+    <div class="track-note" style="margin-top:14px;">Tramos del entreno de Coach — ${buildEntry.name} (${fmtDateShort(buildEntry.date)})</div>
     <div class="splits-bars">
       ${buildEntry.active_laps.map((l,i) => `
         <div class="sb">
           <div class="bar" style="height:${Math.max(12, l.pace_sec_km / maxPace * 56)}px;"></div>
+          <div class="lab">${useSteps ? stepShortLabel(coachSteps[i]) : `Km ${i+1}`}</div>
           <div class="lab num">${fmtPace(l.pace_sec_km)}</div>
         </div>`).join('')}
     </div>`;
@@ -1009,25 +1100,11 @@ document.getElementById('prList').innerHTML = `
 const MONTH_ABBR = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
 const PLAN_BADGE = { done: 'Hecho', upcoming: 'Próximo', missed: 'Perdido' };
 const SPORT_ICON = { running: '🏃', cycling: '🚴', strength_training: '🏋️' };
-const todayStr = new Date().toISOString().slice(0, 10);
-const coachPlan = (DATA.coachPlan || []).slice().sort((a, b) => (a.date < b.date ? -1 : 1));
 
 document.getElementById('planSub').textContent = coachPlan.length
   ? 'Entrenos planificados por Garmin Coach y si los has completado'
   : 'Garmin Coach aún no tiene entrenos programados en tu calendario';
 
-const STEP_TYPE_LABEL = { warmup: 'Calent.', cooldown: 'Enfr.', interval: 'Tramo', recovery: 'Recup.', rest: 'Descanso', repeat: 'Repite', other: 'Libre' };
-function stepShortLabel(step) {
-  const desc = (step.description || '').toLowerCase();
-  if (step.type === 'interval') {
-    if (desc.includes('opcional')) return 'Opcional';
-    if (desc.includes('fácil') || desc.includes('facil')) return 'Fácil';
-    if (desc.includes('rápido') || desc.includes('rapido')) return 'Rápido';
-    if (desc.includes('umbral')) return 'Umbral';
-    if (desc.includes('tempo')) return 'Tempo';
-  }
-  return STEP_TYPE_LABEL[step.type] || step.type || '';
-}
 function fmtStepDuration(step) {
   if (step.end_condition === 'time' && step.end_value) {
     const sec = step.end_value;
@@ -1127,7 +1204,16 @@ document.getElementById('strengthInsight').innerHTML = `
 // ---------- Training load ----------
 const acute = DATA.trainingStatus.acuteTrainingLoadDTO;
 document.getElementById('acwrBadgeVal').textContent = (acute.dailyTrainingLoadAcute / acute.dailyTrainingLoadChronic).toFixed(2);
-document.getElementById('acwrBadge').textContent = acute.acwrStatus === 'OPTIMAL' ? 'Óptimo' : acute.acwrStatus;
+const ACWR_STATUS = {
+  LOW: { label: 'Bajo', cls: 'warning' },
+  OPTIMAL: { label: 'Óptimo', cls: 'good' },
+  HIGH: { label: 'Alto', cls: 'critical' },
+  VERY_HIGH: { label: 'Muy alto', cls: 'critical' },
+};
+const acwrInfo = ACWR_STATUS[acute.acwrStatus] || { label: acute.acwrStatus, cls: 'good' };
+const acwrBadgeEl = document.getElementById('acwrBadge');
+acwrBadgeEl.textContent = acwrInfo.label;
+acwrBadgeEl.className = 'badge ' + acwrInfo.cls;
 document.getElementById('acuteVal').textContent = acute.dailyTrainingLoadAcute;
 document.getElementById('chronicVal').textContent = acute.dailyTrainingLoadChronic;
 const acMax = Math.max(acute.dailyTrainingLoadAcute, acute.dailyTrainingLoadChronic, acute.maxTrainingLoadChronic);
@@ -1154,24 +1240,44 @@ document.getElementById('loadBars').innerHTML = loadRows.map(r => {
 }).join('');
 
 // ---------- Line charts ----------
-function lineChart(title, series, unit, decimals, refValue, refLabel) {
+function lineChart(title, series, unit, decimals, refValue, refLabel, fmtFn) {
   const w = 280, h = 120, padL = 8, padR = 8, padT = 14, padB = 18;
-  const vals = series.map(d => d.v);
-  let vMin = Math.min(...vals), vMax = Math.max(...vals);
+  const isValid = v => v !== null && v !== undefined && !Number.isNaN(Number(v));
+  const vals = series.filter(d => isValid(d.v)).map(d => Number(d.v));
+  let dataMin = vals.length ? Math.min(...vals) : 0, dataMax = vals.length ? Math.max(...vals) : 1;
   if (refValue !== undefined && refValue !== null && !Number.isNaN(refValue)) {
-    vMin = Math.min(vMin, refValue);
-    vMax = Math.max(vMax, refValue);
+    dataMin = Math.min(dataMin, refValue);
+    dataMax = Math.max(dataMax, refValue);
   }
+  const dataRange = (dataMax - dataMin) || 1;
+  const marginPad = dataRange * 0.12;
+  const vMin = dataMin - marginPad, vMax = dataMax + marginPad;
   const range = (vMax - vMin) || 1;
   const x = i => padL + (i / (series.length - 1)) * (w - padL - padR);
   const y = v => padT + (1 - (v - vMin) / range) * (h - padT - padB);
-  const pts = series.map((d,i) => [x(i), y(d.v)]);
-  const linePath = pts.map((p,i) => (i===0?'M':'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
-  const areaPath = linePath + ` L${pts[pts.length-1][0].toFixed(1)},${h-padB} L${pts[0][0].toFixed(1)},${h-padB} Z`;
-  const gridY = [vMin, (vMin+vMax)/2, vMax];
+  const fmtAxis = v => fmtFn ? fmtFn(v) : fmt(v, decimals);
+  const fmtFull = v => fmtFn ? fmtFn(v) : fmt(v, decimals) + unit;
+
+  // Null/undefined values break the line into separate segments ("gaps")
+  // instead of being drawn as 0, so a missing week/day never fakes a dip.
+  const pts = series.map((d,i) => isValid(d.v) ? [x(i), y(Number(d.v))] : null);
+  const runs = [];
+  let cur = [];
+  pts.forEach((p,i) => { if (p) cur.push(i); else { if (cur.length) runs.push(cur); cur = []; } });
+  if (cur.length) runs.push(cur);
+  let linePath = '', areaPath = '';
+  runs.forEach(run => {
+    const seg = run.map((i,j) => (j===0?'M':'L') + pts[i][0].toFixed(1) + ',' + pts[i][1].toFixed(1)).join(' ');
+    linePath += seg + ' ';
+    const first = pts[run[0]], lastP = pts[run[run.length-1]];
+    areaPath += seg + ` L${lastP[0].toFixed(1)},${h-padB} L${first[0].toFixed(1)},${h-padB} Z `;
+  });
+  const gridY = [dataMin, (dataMin+dataMax)/2, dataMax];
 
   const id = 'c' + Math.random().toString(36).slice(2,8);
-  const lastPt = pts[pts.length-1];
+  const lastValidIdx = [...pts.keys()].reverse().find(i => pts[i]);
+  const lastPt = lastValidIdx !== undefined ? pts[lastValidIdx] : null;
+  const lastVal = lastValidIdx !== undefined ? Number(series[lastValidIdx].v) : null;
   const hasRef = refValue !== undefined && refValue !== null && !Number.isNaN(refValue);
   const refY = hasRef ? y(refValue).toFixed(1) : null;
 
@@ -1179,7 +1285,7 @@ function lineChart(title, series, unit, decimals, refValue, refLabel) {
   <div class="chart-box">
     <div class="chart-head">
       <span class="chart-title">${title}</span>
-      <span class="chart-last num">${fmt(series[series.length-1].v, decimals)}${unit}</span>
+      <span class="chart-last num">${lastVal !== null ? fmtFull(lastVal) : '—'}</span>
     </div>
     <div class="chart-wrap">
       <svg viewBox="0 0 ${w} ${h}" id="${id}">
@@ -1190,8 +1296,8 @@ function lineChart(title, series, unit, decimals, refValue, refLabel) {
         <text class="chart-axis-label" x="${w-padR}" y="${(Number(refY)-3).toFixed(1)}" text-anchor="end">${refLabel||'media'}</text>` : ''}
         <path class="chart-area" d="${areaPath}"/>
         <path class="chart-line" d="${linePath}"/>
-        <circle class="chart-dot-end" cx="${lastPt[0].toFixed(1)}" cy="${lastPt[1].toFixed(1)}" r="4"/>
-        ${gridY.map(gv => `<text class="chart-axis-label" x="${padL}" y="${(y(gv)-3).toFixed(1)}">${fmt(gv,decimals)}</text>`).join('')}
+        ${lastPt ? `<circle class="chart-dot-end" cx="${lastPt[0].toFixed(1)}" cy="${lastPt[1].toFixed(1)}" r="4"/>` : ''}
+        ${gridY.map(gv => `<text class="chart-axis-label" x="${padL}" y="${(y(gv)-3).toFixed(1)}">${fmtAxis(gv)}</text>`).join('')}
         <line class="chart-hover-line" id="${id}-hl" x1="0" x2="0" y1="${padT}" y2="${h-padB}"/>
         <circle class="chart-hover-dot" id="${id}-hd" r="4.5"/>
       </svg>
@@ -1209,13 +1315,18 @@ function lineChart(title, series, unit, decimals, refValue, refLabel) {
       const px = (e.clientX - rect.left) / rect.width * w;
       let idx = Math.round((px - padL) / (w - padL - padR) * (series.length - 1));
       idx = Math.max(0, Math.min(series.length - 1, idx));
-      const [cx, cy] = pts[idx];
-      hl.setAttribute('x1', cx); hl.setAttribute('x2', cx); hl.style.opacity = 1;
-      hd.setAttribute('cx', cx); hd.setAttribute('cy', cy); hd.style.opacity = 1;
       const d = series[idx];
-      tip.textContent = `${d.date.slice(8,10)}/${d.date.slice(5,7)} · ${fmt(d.v, decimals)}${unit}${d.extra ? ' · ' + d.extra : ''}`;
-      tip.style.left = (cx / w * 100) + '%';
-      tip.style.top = (cy / h * 100) + '%';
+      const p = pts[idx];
+      hl.setAttribute('x1', x(idx)); hl.setAttribute('x2', x(idx)); hl.style.opacity = 1;
+      if (p) {
+        hd.setAttribute('cx', p[0]); hd.setAttribute('cy', p[1]); hd.style.opacity = 1;
+        tip.textContent = `${d.date.slice(8,10)}/${d.date.slice(5,7)} · ${fmtFull(Number(d.v))}${d.extra ? ' · ' + d.extra : ''}`;
+      } else {
+        hd.style.opacity = 0;
+        tip.textContent = `${d.date.slice(8,10)}/${d.date.slice(5,7)} · sin dato`;
+      }
+      tip.style.left = (x(idx) / w * 100) + '%';
+      tip.style.top = (p ? p[1] : h/2) / h * 100 + '%';
       tip.style.opacity = 1;
     });
     svg.addEventListener('pointerleave', () => {
@@ -1227,9 +1338,13 @@ function lineChart(title, series, unit, decimals, refValue, refLabel) {
 }
 
 const seriesDaily = dailyWithData.map(d => d);
-const bbSeries = DATA.bodyBattery.filter(d => d.end_level !== null && d.end_level !== undefined);
-const stressSeries = DATA.daily.filter(d => d.avg_stress !== '' && d.avg_stress !== undefined && d.avg_stress !== null && Number(d.avg_stress) >= 0);
-const stepsSeries = DATA.daily.filter(d => d.steps !== '' && d.steps !== undefined && d.steps !== null);
+// Body Battery end-of-day, steps and avg stress are all day-long accumulators that
+// aren't final until the day ends, so an in-progress today would otherwise show as a
+// misleading dip — exclude it from these trend series (unlike sleep/HRV, which are
+// overnight measurements already complete by the time today's row appears).
+const bbSeries = DATA.bodyBattery.filter(d => d.end_level !== null && d.end_level !== undefined && d.date !== todayStr);
+const stressSeries = DATA.daily.filter(d => d.avg_stress !== '' && d.avg_stress !== undefined && d.avg_stress !== null && Number(d.avg_stress) >= 0 && d.date !== todayStr);
+const stepsSeries = DATA.daily.filter(d => d.steps !== '' && d.steps !== undefined && d.steps !== null && d.date !== todayStr);
 document.getElementById('trendsSub').textContent =
   `Últimos ${dailyWithData.length} días con datos de bienestar registrados (${fmtDateShort(dailyWithData[0]?.date)}–${fmtDateShort(dailyWithData[dailyWithData.length-1]?.date)})`;
 const hrvBaseline = last.hrv_weekly_avg !== '' && last.hrv_weekly_avg !== undefined ? Number(last.hrv_weekly_avg) : null;
@@ -1342,9 +1457,21 @@ function buildGlucoseChart(a) {
     const minPt = duringActivity.reduce((b,p) => p.value_mgdl < b.value_mgdl ? p : b, duringActivity[0]);
     if (!dots.some(d => d.t === minPt.t)) dots.push({ value_mgdl: minPt.value_mgdl, time: minPt.time, t: minPt.t, label: 'Mínimo' });
   }
+  // Stagger labels that sit close together on the X axis (e.g. "Mínimo" landing right
+  // next to "Fin") so their value text doesn't overlap into an unreadable smear.
+  const dotLabelOffset = new Map();
+  let prevX = -Infinity, prevLevel = 0;
+  dots.slice().sort((d1,d2) => d1.t - d2.t).forEach(d => {
+    const cx = x(d.t);
+    const level = (cx - prevX < 26) ? prevLevel + 1 : 0;
+    dotLabelOffset.set(d, level);
+    prevX = cx; prevLevel = level;
+  });
   const dotsSvg = dots.map(d => {
     const color = d.label === 'Mínimo' ? (d.value_mgdl < RANGE_LOW ? 'var(--critical)' : 'var(--warning)') : 'var(--accent)';
-    return `<circle cx="${x(d.t).toFixed(1)}" cy="${y(d.value_mgdl).toFixed(1)}" r="4" fill="var(--surface-card)" stroke="${color}" stroke-width="2"/><text x="${x(d.t).toFixed(1)}" y="${(y(d.value_mgdl)-8).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--text-secondary)">${fmt(d.value_mgdl,0)}</text>`;
+    const cx = x(d.t);
+    const yOff = 8 + (dotLabelOffset.get(d) || 0) * 10;
+    return `<circle cx="${cx.toFixed(1)}" cy="${y(d.value_mgdl).toFixed(1)}" r="4" fill="var(--surface-card)" stroke="${color}" stroke-width="2"/><text x="${cx.toFixed(1)}" y="${(y(d.value_mgdl)-yOff).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--text-secondary)">${fmt(d.value_mgdl,0)}</text>`;
   }).join('');
 
   const xTicks = [];
@@ -1431,13 +1558,14 @@ function strengthComparisonHtml(a) {
   (prev.exercises || []).forEach(e => { prevByName[e.name] = e; });
   const rows = (a.exercises || []).filter(e => e.best_set).map(e => {
     const pe = prevByName[e.name];
-    if (!pe || !pe.best_set || e.one_rm_est == null || pe.one_rm_est == null) return null;
-    const diff = Math.round((e.one_rm_est - pe.one_rm_est) * 10) / 10;
+    if (!pe || !pe.best_set) return null;
+    const weightDiff = e.best_set.weight_kg - pe.best_set.weight_kg;
+    const repsDiff = e.best_set.reps - pe.best_set.reps;
+    const diff = weightDiff !== 0 ? weightDiff : repsDiff;
     const arrow = diff > 0 ? '▲' : diff < 0 ? '▼' : '＝';
     const cls = diff > 0 ? 'up' : diff < 0 ? 'down' : '';
-    const diffTxt = diff !== 0 ? ` <span class="${cls}">${arrow} ${diff > 0 ? '+' : ''}${fmt(diff,1)} kg</span>` : ` <span>＝</span>`;
     const pr = e.is_pr ? ' 🏆' : '';
-    return `<div>${e.display_name} ${fmt(e.best_set.weight_kg,1)}×${e.best_set.reps}${diffTxt}${pr}</div>`;
+    return `<div>${e.display_name} ${fmt(pe.best_set.weight_kg,1)}×${pe.best_set.reps} → ${fmt(e.best_set.weight_kg,1)}×${e.best_set.reps} <span class="${cls}">${arrow}</span>${pr}</div>`;
   }).filter(Boolean);
   if (!rows.length) return '';
   return `<div class="act-compare">vs. último "${prev.session_type}" (${fmtDateShort(prev.date)}):${rows.join('')}</div>`;
@@ -1590,7 +1718,13 @@ function summaryGridHtml(a) {
   if (!isStrength && a.training_effect_anaerobic !== undefined && a.training_effect_anaerobic !== null && a.training_effect_anaerobic !== '') push('TE anaeróbico', fmt(a.training_effect_anaerobic,1) + (a.te_anaerobic_label ? ' · ' + a.te_anaerobic_label : ''));
 
   if (isStrength) {
-    if (a.num_sets !== undefined && a.num_sets !== null) push('Series', fmt(a.num_sets,0));
+    // Match the collapsed row's "series" figure exactly (effective sets, not
+    // Garmin's raw num_sets which also counts warm-ups) and add the raw count
+    // alongside it so the two numbers are never seen in conflict.
+    if (a.effective_sets_total !== undefined && a.effective_sets_total !== null) {
+      const totalSets = (a.exercises||[]).reduce((s,e) => s + (e.sets||[]).length, 0);
+      push('Series', `${fmt(a.effective_sets_total,0)} efectivas${totalSets ? ` (${totalSets} registradas)` : ''}`);
+    }
     if (a.active_sec) push('Tiempo activo', fmtHMS(a.active_sec));
     if (a.rest_sec) push('Descanso entre series', fmtHMS(a.rest_sec));
     if (a.avg_hr_during_sets) push('FC media en series', fmt(a.avg_hr_during_sets,0) + ' ppm');
@@ -2159,8 +2293,8 @@ function exerciseTableHtml(a) {
   if (!exercises.length) return '';
   const rows = exercises.map((e, i) => {
     const reps = (e.sets||[]).map(s => s.reps != null ? s.reps : '—').join('/');
-    const bestSet = e.best_set ? `${fmt(e.best_set.weight_kg,1)}×${e.best_set.reps}` : '—';
     const prBadge = e.is_pr ? ' 🏆' : '';
+    const bestSet = e.best_set ? `${fmt(e.best_set.weight_kg,1)}×${e.best_set.reps}${prBadge}` : '—';
     const setRows = (e.sets||[]).map((s,j) => `<tr class="exercise-set-row${s.warmup ? ' set-warmup' : ''}">
         <td>${s.warmup ? 'Calent.' : `Serie ${j+1}`}</td>
         <td class="num">${s.reps != null ? fmt(s.reps,0) : '—'}</td>
@@ -2172,15 +2306,14 @@ function exerciseTableHtml(a) {
       <td class="num reps-col">${reps}</td>
       <td class="num weight-col">${fmtWeightRange(e.weight_min, e.weight_max)}</td>
       <td class="num">${bestSet}</td>
-      <td class="num rm-col">${e.one_rm_est != null ? fmt(e.one_rm_est,0) + ' kg' + prBadge : '—'}</td>
     </tr>
-    <tr class="exercise-sets-wrap" id="ex-sets-${a.activity_id}-${i}" hidden><td colspan="6">
+    <tr class="exercise-sets-wrap" id="ex-sets-${a.activity_id}-${i}" hidden><td colspan="5">
       <table class="act-splits exercise-sets-table"><tbody>${setRows}</tbody></table>
     </td></tr>`;
   }).join('');
   const wrapId = 'ex-tbl-' + a.activity_id;
   const html = `<div class="act-splits-wrap" id="${wrapId}"><table class="act-splits exercise-table">
-    <thead><tr><th>Ejercicio</th><th>Series</th><th class="reps-col">Reps</th><th class="weight-col">Peso</th><th>Mejor serie</th><th class="rm-col">1RM</th></tr></thead>
+    <thead><tr><th>Ejercicio</th><th>Series</th><th class="reps-col">Reps</th><th class="weight-col">Peso</th><th>Mejor serie</th></tr></thead>
     <tbody>${rows}</tbody>
   </table></div>`;
   requestAnimationFrame(() => {
@@ -2306,7 +2439,7 @@ function activityRowHtml(a) {
 
 const ACT_PAGE_SIZE = 5;
 const ACT_LOAD_MORE_STEP = 10;
-let actFilter = 'running';
+let actFilter = 'all';
 let actVisibleCount = ACT_PAGE_SIZE;
 
 function filteredActivities() {
@@ -2411,14 +2544,19 @@ document.getElementById('runAnalysisSub').textContent = runsWithSplits.length
   ? `Parciales por km de tus ${runsWithSplits.length} carreras más recientes con datos suficientes`
   : 'Aún no hay carreras con datos suficientes para un análisis por km';
 document.getElementById('runAnalysisList').innerHTML = runsWithSplits.map(a => {
-  const paces = a.km_splits.map(s => s.pace_sec_km);
-  const minPace = Math.min(...paces), maxPace = Math.max(...paces);
-  const range = (maxPace - minPace) || 1;
+  const speeds = a.km_splits.map(s => 1 / s.pace_sec_km);
+  const minSpeed = Math.min(...speeds), maxSpeed = Math.max(...speeds);
+  // Baseline the bar heights at 85% of the slowest km's speed (not 0) so that small,
+  // normal pace variation across a run doesn't look dramatically different bar-to-bar.
+  const baseline = minSpeed * 0.85;
+  const spanSpeed = (maxSpeed - baseline) || 1;
   const kmBars = a.km_splits.map(s => {
-    const pct = 20 + 80 * (maxPace - s.pace_sec_km) / range;
+    const speed = 1 / s.pace_sec_km;
+    const pct = Math.max(8, Math.min(100, (speed - baseline) / spanSpeed * 100));
     const label = s.partial ? `${(s.distance_m/1000).toFixed(1)}` : `${s.km}`;
     const tip = `${fmtPace(s.pace_sec_km)}${s.avg_hr ? ' · ' + fmt(s.avg_hr,0) + ' ppm' : ''}${s.avg_cadence ? ' · ' + fmt(s.avg_cadence,0) + ' spm' : ''}`;
     return `<div class="kb">
+      <div class="pace-lab num">${fmtPace(s.pace_sec_km).replace('/km','')}</div>
       <div class="bar${s.partial ? ' partial' : ''}" style="height:${pct}%;" title="${tip}"></div>
       <div class="lab">${label}</div>
     </div>`;
@@ -2464,7 +2602,6 @@ document.getElementById('runAnalysisList').innerHTML = runsWithSplits.map(a => {
       <div class="ra-stat"><div class="rl">Temperatura</div><div class="rv num">${temp}</div></div>
     </div>
     ${coachHtml}
-    ${buildGlucoseChart(a)}
     ${activityGlucoseHtml(a)}
     ${realZoneBar(a.hr_zones)}
     <div class="ra-eval-row">
@@ -2483,8 +2620,8 @@ document.getElementById('runTrendsSub').textContent = runTrendsData.length
 document.getElementById('runTrendsCharts').innerHTML = runTrendsData.length > 1
   ? lineChart('Km totales / semana', runTrendsData.map(w => ({date:w.week_start, v:Number(w.km_total)})), ' km', 1)
     + lineChart('Carrera más larga', runTrendsData.map(w => ({date:w.week_start, v:Number(w.longest_run_km)})), ' km', 1)
-    + (runTrendsData.some(w=>w.avg_cadence) ? lineChart('Cadencia media (corriendo)', runTrendsData.map(w => ({date:w.week_start, v:Number(w.avg_cadence||0)})), ' spm', 0) : '')
-    + (runTrendsData.some(w=>w.z2_pace_sec_km) ? lineChart('Ritmo medio en Z2', runTrendsData.map(w => ({date:w.week_start, v:w.z2_pace_sec_km ? Number(w.z2_pace_sec_km)/60 : 0})), ' min/km', 1) : '')
+    + (runTrendsData.some(w=>w.avg_cadence) ? lineChart('Cadencia media (corriendo)', runTrendsData.map(w => ({date:w.week_start, v:w.avg_cadence !== null && w.avg_cadence !== undefined ? Number(w.avg_cadence) : null})), ' spm', 0) : '')
+    + (runTrendsData.some(w=>w.z2_pace_sec_km) ? lineChart('Ritmo medio en Z2', runTrendsData.map(w => ({date:w.week_start, v:w.z2_pace_sec_km !== null && w.z2_pace_sec_km !== undefined ? Number(w.z2_pace_sec_km) : null})), '', 0, undefined, undefined, fmtPace) : '')
   : '<div class="track-note">Necesitas al menos 2 semanas con carreras registradas para ver la tendencia.</div>';
 
 // ---------- Resumen semanal ----------
@@ -2504,7 +2641,8 @@ const weekStrength = strengthActivities.filter(a => a.date >= weekStart);
 const weekKm = weekRuns.reduce((s,a)=>s+Number(a.distance_km||0),0);
 const weekMin = weekRuns.reduce((s,a)=>s+Number(a.duration_min||0),0);
 const weekLongest = weekRuns.reduce((max,a)=> Number(a.distance_km||0) > max ? Number(a.distance_km) : max, 0);
-const weekPlanned = coachPlan.filter(w => w.date >= weekStart && w.date <= todayStr && w.status !== 'upcoming');
+const weekEnd = new Date(new Date(weekStart+'T00:00:00Z').getTime() + 6*86400000).toISOString().slice(0,10);
+const weekPlanned = coachPlan.filter(w => w.date >= weekStart && w.date <= weekEnd);
 const weekDone = weekPlanned.filter(w => w.status === 'done');
 
 document.getElementById('weekSub').textContent = `Semana actual (desde el lunes ${fmtDateShort(weekStart)})`;
@@ -2554,12 +2692,12 @@ document.getElementById('muscleSetsNote').textContent =
 const exerciseHistory = {};
 [...strengthActivities].sort((a,b) => a.date < b.date ? -1 : (a.date > b.date ? 1 : 0)).forEach(act => {
   (act.exercises || []).forEach(ex => {
-    if (!ex.one_rm_est || !ex.best_set) return;
+    if (!ex.best_set) return;
     const key = ex.name;
     if (!exerciseHistory[key]) exerciseHistory[key] = { display_name: ex.display_name, typeCounts: {}, points: [] };
     const h = exerciseHistory[key];
     h.typeCounts[act.session_type] = (h.typeCounts[act.session_type]||0) + 1;
-    h.points.push({ date: act.date, v: ex.one_rm_est, extra: `${fmt(ex.best_set.weight_kg,1)}×${ex.best_set.reps}` });
+    h.points.push({ date: act.date, v: ex.best_set.weight_kg, extra: `${ex.best_set.reps} reps` });
   });
 });
 function dominantSessionType(h) {
@@ -2620,7 +2758,7 @@ const STAGE_META = [
 const lastStages = last;
 const stageTotal = STAGE_META.reduce((s,st) => s + Number(lastStages[st.key]||0), 0);
 if (stageTotal > 0) {
-  document.getElementById('sleepStagesLabel').textContent = `Fases de sueño — anoche (${fmtDateShort(last.date)}, ${Math.round(stageTotal/60*10)/10} h)`;
+  document.getElementById('sleepStagesLabel').textContent = `Fases de sueño — anoche (${fmtDateShort(last.date)}, ${fmt(last.sleep_hours,1)} h)`;
   document.getElementById('sleepStagesBar').innerHTML = STAGE_META.map(st => {
     const mins = Number(lastStages[st.key]||0);
     const pct = mins / stageTotal * 100;
@@ -3137,15 +3275,7 @@ if (stageTotal > 0) {
         latestEl.innerHTML = '';
       }
 
-      const night = glucose.night || {};
-      if (night.available) {
-        glucoseRowEl.innerHTML = `
-          <span class="g-item">Noche (${fmtDateShort(night.date)}) media <span class="v num">${fmt(night.avg_mgdl,0)}</span> mg/dL</span>
-          <span class="g-item">Mínima <span class="v num">${fmt(night.min_mgdl,0)}</span> mg/dL</span>
-          <span class="g-item${night.hypo_count > 0 ? ' hypo' : ''}">Hipos &lt;70 <span class="v num">${fmt(night.hypo_count,0)}</span></span>`;
-      } else {
-        glucoseRowEl.innerHTML = `<span class="g-item">Sin datos de esta noche todavía — se actualiza a las 7:00</span>`;
-      }
+      glucoseRowEl.innerHTML = '';
 
       const tir = glucose.time_in_range;
       if (tir && tir.available) {
@@ -3170,10 +3300,7 @@ if (stageTotal > 0) {
       latestEl.innerHTML = '';
       tirEl.innerHTML = '';
       glucoseRowEl.className = 'glucose-row unavailable';
-      glucoseRowEl.innerHTML = `
-        <span class="g-item">Media: —</span>
-        <span class="g-item">Mínima: —</span>
-        <span class="g-item">Hipos &lt;70: —</span>`;
+      glucoseRowEl.innerHTML = '';
       const reasonNote = {
         not_configured: 'Pendiente de conectar Libre 2',
         login_failed: 'No se pudo conectar con LibreLinkUp en la última sincronización',

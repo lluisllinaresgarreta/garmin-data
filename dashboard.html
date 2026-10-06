@@ -2848,19 +2848,20 @@ if (stageTotal > 0) {
     const ex = (pd && pd.excluded) || {};
     const excluded = { leg: !!ex.leg, push: !!ex.push, pull: !!ex.pull, bike: !!ex.bike };
     const runOverrides = Object.assign({}, (pd && pd.runOverrides) || {});
-    return { days, settings, excluded, runOverrides };
+    const strengthOverrides = Object.assign({}, (pd && pd.strengthOverrides) || {});
+    return { days, settings, excluded, runOverrides, strengthOverrides };
   }
 
   // A day already has real Garmin activities logged on it -> turn each into a
   // "done" session instead of asking the scheduler to guess at it.
+  const STRENGTH_SUB_FOR_TYPE = { Push: 'push', Pull: 'pull', Pierna: 'leg' };
   function sessionFromActivity(a) {
     if (a.type === 'running') {
       const coachMatch = coachPlan.find(w => w.date === a.date && w.sport === 'running' && w.status === 'done');
       return { type: 'run', label: (coachMatch && coachMatch.title) || a.name, status: 'done' };
     }
     if (a.type === 'strength_training') {
-      const n = (a.name || '').toLowerCase();
-      const sub = /pull|tir[oó]n|espalda/.test(n) ? 'pull' : /push|empuje|pecho/.test(n) ? 'push' : /leg|pierna/.test(n) ? 'leg' : null;
+      const sub = STRENGTH_SUB_FOR_TYPE[a.session_type] || null;
       return { type: 'strength', sub, label: a.name || 'Fuerza', status: 'done' };
     }
     if (a.type === 'indoor_cycling') {
@@ -2879,8 +2880,18 @@ if (stageTotal > 0) {
   // run for the week is placed on its own date, unconditionally — no cap, no
   // automatic relocation. The only way a run moves or disappears is a manual
   // per-run override (move/skip) saved from the panel.
+  // Days since the most recent LOGGED session of this sub-type (push/pull/leg),
+  // using session_type from any strength activity in the export — not just this
+  // week, so last week's sessions count too. Infinity if never logged.
+  function daysSinceLastSession(subType) {
+    const matches = DATA.activities.filter(a => a.type === 'strength_training' && a.session_type === subType);
+    if (!matches.length) return Infinity;
+    const mostRecent = matches.reduce((latest, a) => (a.date > latest ? a.date : latest), matches[0].date);
+    return (new Date(todayStr) - new Date(mostRecent)) / 86400000;
+  }
+
   function computeWeekPlan(norm) {
-    const { days, settings, excluded, runOverrides } = norm;
+    const { days, settings, excluded, runOverrides, strengthOverrides } = norm;
     const strengthMin = settings.strengthMin, bikeMin = settings.bikeMin;
     const plan = DOW.map((dow, i) => {
       const date = addDays(weekStart, i);
@@ -2961,25 +2972,43 @@ if (stageTotal > 0) {
     // ANTES de reservar el descanso: si solo queda un día libre en toda la semana, pierna
     // tiene prioridad (con su propio aviso de margen) sobre reservarlo como descanso.
     const reservedDates = new Set();
-    let legDay = null;
+    let legDay = null, legMovedByUser = false;
     if (!fulfilledSubs.has('leg') && !excluded.leg) {
-      const scored = baseStrengthCandidates(reservedDates).map(d => {
-        const next = nextRaceAfter(d.date);
-        const marginHours = next ? hoursBetween(d.date, next.date) : Infinity;
-        const minHours = next ? (next.isEasy ? 48 : 72) : 0;
-        return { d, marginHours, ok: marginHours >= minHours };
-      });
-      const valid = scored.filter(x => x.ok).sort((a, b) => b.marginHours - a.marginHours);
-      if (valid.length) {
-        legDay = valid[0].d;
-      } else if (scored.length) {
-        scored.sort((a, b) => b.marginHours - a.marginHours);
-        legDay = scored[0].d;
-        warnings.push(`Pierna el ${fmtDateShort(legDay.date)} queda con menos del margen recomendado antes de la próxima carrera — no había alternativa libre esta semana.`);
-      } else {
-        dropped.push('Pierna (ningún día de gimnasio libre esta semana)');
+      // A manual override is honored as long as the day is still free to use —
+      // margin-to-race is checked only to warn, never to block the user's choice.
+      const overrideDate = strengthOverrides.leg;
+      if (overrideDate) {
+        const forced = byDate[overrideDate];
+        if (forced && forced.schedulable && !reservedDates.has(forced.date)) {
+          legDay = forced;
+          legMovedByUser = true;
+          const next = nextRaceAfter(forced.date);
+          const marginHours = next ? hoursBetween(forced.date, next.date) : Infinity;
+          const minHours = next ? (next.isEasy ? 48 : 72) : 0;
+          if (marginHours < minHours) {
+            warnings.push(`Pierna el ${fmtDateShort(forced.date)} (movida por ti) queda con menos del margen recomendado antes de la próxima carrera.`);
+          }
+        }
       }
-      if (legDay) { legDay.sessions.push({ type: 'strength', sub: 'leg', label: 'Pierna', estMin: strengthMin, status: 'pending' }); legDay.remaining -= strengthMin; }
+      if (!legDay) {
+        const scored = baseStrengthCandidates(reservedDates).map(d => {
+          const next = nextRaceAfter(d.date);
+          const marginHours = next ? hoursBetween(d.date, next.date) : Infinity;
+          const minHours = next ? (next.isEasy ? 48 : 72) : 0;
+          return { d, marginHours, ok: marginHours >= minHours };
+        });
+        const valid = scored.filter(x => x.ok).sort((a, b) => b.marginHours - a.marginHours);
+        if (valid.length) {
+          legDay = valid[0].d;
+        } else if (scored.length) {
+          scored.sort((a, b) => b.marginHours - a.marginHours);
+          legDay = scored[0].d;
+          warnings.push(`Pierna el ${fmtDateShort(legDay.date)} queda con menos del margen recomendado antes de la próxima carrera — no había alternativa libre esta semana.`);
+        } else {
+          dropped.push('Pierna (ningún día de gimnasio libre esta semana)');
+        }
+      }
+      if (legDay) { legDay.sessions.push({ type: 'strength', sub: 'leg', label: 'Pierna', estMin: strengthMin, status: 'pending', movedByUser: legMovedByUser }); legDay.remaining -= strengthMin; }
     }
     if (legDay) reservedDates.add(legDay.date);
 
@@ -3017,19 +3046,34 @@ if (stageTotal > 0) {
     // calidad) — el margen de 48h/72h es solo para pierna. Como último recurso, si no
     // cabe en ningún día sin carrera, pueden compartir un día "both" con una carrera si
     // sobran minutos tras ella (se prioriza la carrera suave sobre la de calidad).
+    // Whichever of the two has gone longer since its last LOGGED session (across the
+    // whole export, not just this week) gets first pick of the earliest free day.
     let pushDay = null, pullDay = null;
     const isAdjacent = (a, b) => Math.abs(plan.indexOf(a) - plan.indexOf(b)) === 1;
-    [['push', 'Empuje'], ['pull', 'Tirón']].forEach(([sub, label]) => {
+    const pushPullBySub = { push: ['push', 'Empuje'], pull: ['pull', 'Tirón'] };
+    const pushPullOrder = ['push', 'pull']
+      .sort((a, b) => daysSinceLastSession(a === 'push' ? 'Push' : 'Pull') < daysSinceLastSession(b === 'push' ? 'Push' : 'Pull') ? 1 : -1)
+      .map(sub => pushPullBySub[sub]);
+    pushPullOrder.forEach(([sub, label]) => {
       if (fulfilledSubs.has(sub) || excluded[sub]) return;
       const otherDay = sub === 'push' ? pullDay : pushDay;
-      const cand = baseStrengthCandidates(reservedDates).sort((a, b) => a.date < b.date ? -1 : 1);
-      let pick = null, combined = false, onRaceDay = false;
-      if (otherDay) {
-        pick = cand.find(d => !isAdjacent(d, otherDay) && d.date !== otherDay.date)
-          || cand.find(d => d.date !== otherDay.date);
-        if (!pick && cand.length) { pick = otherDay.remaining >= strengthMin ? otherDay : cand[0]; combined = pick.date === otherDay.date; }
-      } else {
-        pick = cand[0];
+      let pick = null, combined = false, onRaceDay = false, movedByUser = false;
+      // A manual override is honored as long as the day is still free; otherwise
+      // fall through to the normal automatic placement below.
+      const overrideDate = strengthOverrides[sub];
+      if (overrideDate) {
+        const forced = byDate[overrideDate];
+        if (forced && forced.schedulable && !reservedDates.has(forced.date)) { pick = forced; movedByUser = true; }
+      }
+      if (!pick) {
+        const cand = baseStrengthCandidates(reservedDates).sort((a, b) => a.date < b.date ? -1 : 1);
+        if (otherDay) {
+          pick = cand.find(d => !isAdjacent(d, otherDay) && d.date !== otherDay.date)
+            || cand.find(d => d.date !== otherDay.date);
+          if (!pick && cand.length) { pick = otherDay.remaining >= strengthMin ? otherDay : cand[0]; combined = pick.date === otherDay.date; }
+        } else {
+          pick = cand[0];
+        }
       }
       if (!pick) {
         const raceCand = plan.filter(d => d.schedulable && d.avail === 'both' && d.remaining >= strengthMin && !reservedDates.has(d.date) && isRaceDay(d))
@@ -3041,7 +3085,7 @@ if (stageTotal > 0) {
         if (raceCand.length) { pick = raceCand[0]; onRaceDay = true; }
       }
       if (pick) {
-        pick.sessions.push({ type: 'strength', sub, label, estMin: strengthMin, status: 'pending' });
+        pick.sessions.push({ type: 'strength', sub, label, estMin: strengthMin, status: 'pending', movedByUser });
         pick.remaining -= strengthMin;
         reservedDates.add(pick.date);
         if (sub === 'push') pushDay = pick; else pullDay = pick;
@@ -3053,7 +3097,10 @@ if (stageTotal > 0) {
     // 5) Bici tras fuerza — una sugerencia por cada sesión de fuerza recién colocada
     // (mismo día si queda tiempo, si no el día siguiente). Z1 corta tras pierna, Z2 tras
     // torso, o Z2 baja si al día siguiente de la bici hay una sesión de carrera de calidad.
-    // Nunca se añade en un día que ya tiene una carrera.
+    // Nunca se añade en un día que ya tiene una carrera, ni en uno que ya tenga OTRA sesión
+    // de fuerza (puede pasar si una sesión se movió a mano a un día sin minutos propios y
+    // su bici tendría que desbordar justo al día de otra fuerza) — ahí se omite la bici en
+    // vez de etiquetarla con la zona que no le corresponde.
     if (!excluded.bike) {
       const placedStrength = [];
       if (legDay) placedStrength.push({ day: legDay, sub: 'leg' });
@@ -3064,7 +3111,7 @@ if (stageTotal > 0) {
         const i = plan.indexOf(day);
         let target = null;
         if (day.remaining >= bikeMin) target = day;
-        else if (i < plan.length - 1 && plan[i + 1].schedulable && plan[i + 1].remaining >= bikeMin) target = plan[i + 1];
+        else if (i < plan.length - 1 && plan[i + 1].schedulable && plan[i + 1].remaining >= bikeMin && !plan[i + 1].sessions.some(s => s.type === 'strength')) target = plan[i + 1];
         if (!target) return;
         const j = plan.indexOf(target);
         const qualityNext = j < plan.length - 1 && dayHasQualityRun(plan[j + 1]);
@@ -3102,12 +3149,13 @@ if (stageTotal > 0) {
   // ---- Rendering ----
   const STATUS_LABEL = { done:'hecho', pending:'pendiente', missed:'perdida', skipped:'saltada por ti' };
 
-  function renderSessionLine(s, currentDate, owner, weekFutureDays) {
+  function renderSessionLine(s, currentDate, owner, weekFutureDays, strengthMoveDays, pendingStrength) {
     const bits = [];
     if (s.status) bits.push(STATUS_LABEL[s.status] || s.status);
     if (s.unconfirmedAvail) bits.push('según Coach, sin confirmar disponibilidad');
     if (s.short) bits.push('acortada para caber en el hueco');
     if (s.moved) bits.push(`movida desde ${fmtDateShort(s.origDate)} — mueve también esta sesión en Garmin Connect`);
+    if (s.movedByUser) bits.push('movida por ti');
     const meta = bits.length ? ` (${bits.join(' · ')})` : '';
     let controls = '';
     if (owner && s.type === 'run') {
@@ -3123,14 +3171,33 @@ if (stageTotal > 0) {
       } else if (s.status === 'skipped') {
         controls = `<button type="button" class="planner-skip-btn" data-run-unskip="${s.origDate}">Deshacer</button>`;
       }
+    } else if (owner && s.type === 'strength' && s.status === 'pending' && s.sub) {
+      const moveOptions = strengthMoveDays.filter(d => d.date !== currentDate).map(d => `<option value="${d.date}">${d.label}</option>`).join('');
+      const others = pendingStrength.filter(o => o.sub !== s.sub);
+      const swapOptions = others.map(o => `<option value="${o.sub}">${o.label} (${fmtDateShort(o.date)})</option>`).join('');
+      controls = `<div class="run-controls">
+        <select class="planner-select strength-move-select" data-strength-sub="${s.sub}">
+          <option value="">${s.movedByUser ? 'Volver al reparto automático' : 'Mover a…'}</option>
+          ${moveOptions}
+        </select>
+        ${others.length ? `<select class="planner-select strength-swap-select" data-strength-sub="${s.sub}">
+          <option value="">Intercambiar…</option>
+          ${swapOptions}
+        </select>` : ''}
+      </div>`;
     }
     const strike = s.status === 'skipped' ? ' style="text-decoration:line-through;opacity:0.6;"' : '';
     return `<div class="planner-session-line"><span${strike}>${s.label}${meta}</span>${controls}</div>`;
   }
 
   function renderPlannerUI(norm, owner, result) {
-    const { days, settings, excluded } = norm;
+    const { days, settings, excluded, strengthOverrides } = norm;
     const weekFutureDays = result.plan.filter(d => d.date >= todayStr).map(d => ({ date: d.date, label: `${DOW_LABEL[d.dow]} ${fmtDateShort(d.date)}` }));
+    // Strength sessions can only be moved onto days that aren't already locked by a
+    // real logged activity (runs reuse weekFutureDays above, unaffected by this).
+    const strengthMoveDays = result.plan.filter(d => d.schedulable).map(d => ({ date: d.date, label: `${DOW_LABEL[d.dow]} ${fmtDateShort(d.date)}` }));
+    const pendingStrength = [];
+    result.plan.forEach(d => d.sessions.forEach(s => { if (s.type === 'strength' && s.status === 'pending' && s.sub) pendingStrength.push({ sub: s.sub, label: s.label, date: d.date }); }));
 
     const settingsRow = owner ? `
     <div class="planner-settings">
@@ -3151,7 +3218,7 @@ if (stageTotal > 0) {
       const isPast = date < todayStr;
       const editable = owner && planDay.schedulable;
       const assignedText = planDay.sessions.length
-        ? planDay.sessions.map(s => renderSessionLine(s, date, owner, weekFutureDays)).join('')
+        ? planDay.sessions.map(s => renderSessionLine(s, date, owner, weekFutureDays, strengthMoveDays, pendingStrength)).join('')
         : (planDay.locked ? '—' : (d.avail === 'rest' ? 'Descanso' : (isPast ? 'Descanso' : (d.avail === 'no' ? '—' : 'Libre'))));
       let controls;
       if (editable) {
@@ -3183,6 +3250,9 @@ if (stageTotal > 0) {
     if (result.dropped.length) bits.push(`<div class="insight"><div class="dot warning"></div><p>No caben esta semana: <strong>${result.dropped.join(', ')}</strong>.</p></div>`);
     result.warnings.forEach(w => bits.push(`<div class="insight"><div class="dot warning"></div><p>${w}</p></div>`));
     result.notes.forEach(n => bits.push(`<div class="insight"><div class="dot neutral"></div><p>${n}</p></div>`));
+    if (owner && Object.keys(strengthOverrides).length) {
+      bits.push(`<div class="insight"><div class="dot neutral"></div><p>Has movido sesiones de fuerza a mano esta semana. <button type="button" class="planner-skip-btn" data-reset-strength="1">Restablecer</button></p></div>`);
+    }
     if (!bits.length) bits.push(`<div class="insight"><div class="dot good"></div><p>Todo encaja esta semana con la disponibilidad indicada.</p></div>`);
     document.getElementById('plannerSummary').innerHTML = bits.join('');
 
@@ -3348,6 +3418,26 @@ if (stageTotal > 0) {
     if (t.dataset.runOrig) {
       if (t.value) norm.runOverrides[t.dataset.runOrig] = { action: 'move', to: t.value };
       else delete norm.runOverrides[t.dataset.runOrig];
+    } else if (t.dataset.strengthSub && t.classList.contains('strength-move-select')) {
+      const sub = t.dataset.strengthSub;
+      if (t.value) norm.strengthOverrides[sub] = t.value;
+      else delete norm.strengthOverrides[sub];
+    } else if (t.dataset.strengthSub && t.classList.contains('strength-swap-select')) {
+      const subA = t.dataset.strengthSub, subB = t.value;
+      if (subB) {
+        // Swap uses each sub's CURRENT date (auto-placed or already overridden),
+        // not its original auto-placement, so repeated swaps stay consistent.
+        const currentPlan = computeWeekPlan(norm).plan;
+        const dateOf = sub => {
+          const day = currentPlan.find(d => d.sessions.some(s => s.type === 'strength' && s.sub === sub && s.status === 'pending'));
+          return day ? day.date : null;
+        };
+        const dateA = dateOf(subA), dateB = dateOf(subB);
+        if (dateA && dateB) {
+          norm.strengthOverrides[subA] = dateB;
+          norm.strengthOverrides[subB] = dateA;
+        }
+      }
     } else if (t.dataset.dow && t.dataset.field) {
       norm.days[t.dataset.dow][t.dataset.field] = t.dataset.field === 'minutes' ? Math.max(0, Number(t.value) || 0) : t.value;
     } else if (t.dataset.setting) {
@@ -3363,18 +3453,24 @@ if (stageTotal > 0) {
     if (saveFn) { try { await saveFn(norm); } catch (err) { console.error('planner save failed', err); } }
   });
 
-  document.getElementById('plannerBody').addEventListener('click', async (e) => {
+  async function handlePlannerClick(e) {
     if (!isOwnerFlag) return;
     const t = e.target;
-    const skipKey = t.dataset.runSkip, unskipKey = t.dataset.runUnskip;
-    if (!skipKey && !unskipKey) return;
+    const skipKey = t.dataset.runSkip, unskipKey = t.dataset.runUnskip, resetStrength = t.dataset.resetStrength;
+    if (!skipKey && !unskipKey && !resetStrength) return;
     const norm = normalizePlannerData(plannerData);
     if (skipKey) norm.runOverrides[skipKey] = { action: 'skip' };
-    else delete norm.runOverrides[unskipKey];
+    else if (unskipKey) delete norm.runOverrides[unskipKey];
+    else if (resetStrength) norm.strengthOverrides = {};
     plannerData = norm;
     rerender();
     if (saveFn) { try { await saveFn(norm); } catch (err) { console.error('planner save failed', err); } }
-  });
+  }
+  document.getElementById('plannerBody').addEventListener('click', handlePlannerClick);
+  // The "Restablecer" button for strength overrides renders inside plannerSummary
+  // (alongside the other weekly notes/warnings), not plannerBody, so it needs its
+  // own listener using the same handler.
+  document.getElementById('plannerSummary').addEventListener('click', handlePlannerClick);
 
   (async function initCapabilities() {
     if (!window.claude) return;
@@ -3390,7 +3486,7 @@ if (stageTotal > 0) {
       (err) => { console.error('planner onSnapshot error', err); }
     );
     if (isOwnerFlag) {
-      saveFn = async (norm) => { await ref.set({ days: norm.days, settings: norm.settings, excluded: norm.excluded, runOverrides: norm.runOverrides, updatedAt: new Date().toISOString() }); };
+      saveFn = async (norm) => { await ref.set({ days: norm.days, settings: norm.settings, excluded: norm.excluded, runOverrides: norm.runOverrides, strengthOverrides: norm.strengthOverrides, updatedAt: new Date().toISOString() }); };
     } else {
       rerender();
     }

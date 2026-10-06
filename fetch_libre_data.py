@@ -38,7 +38,6 @@ HYPO_THRESHOLD = 70.0
 RANGE_LOW = 70.0
 RANGE_HIGH = 180.0
 MATCH_TOLERANCE_MIN = 30
-POST_WORKOUT_HYPO_WINDOW_H = 12
 CHART_PRE_MIN = 30
 CHART_POST_H = 2
 CHART_EDGE_TOLERANCE_MIN = 20
@@ -166,8 +165,7 @@ def compute_time_in_range(readings) -> dict:
 
 def compute_activity_glucose(readings) -> dict:
     """For each recent activity whose start/end time falls inside the fetched
-    glucose window, record glucose at start and ~30min after finishing, plus
-    any hypoglycemia readings in the hours after."""
+    glucose window, record glucose at start and ~30min after finishing."""
     out = {}
     csv_path = DATA_DIR / "activities.csv"
     if not csv_path.exists():
@@ -195,16 +193,6 @@ def compute_activity_glucose(readings) -> dict:
         at_post = _nearest_reading(readings, post_30_dt)
         if at_start is None and at_post is None:
             continue  # activity is outside the fetched glucose window entirely
-
-        hypo_cutoff = end_dt + timedelta(hours=POST_WORKOUT_HYPO_WINDOW_H)
-        hypo_events = sorted(
-            [
-                {"time": r.timestamp.strftime("%H:%M"), "value_mgdl": round(r.value_in_mg_per_dl, 1)}
-                for r in readings
-                if end_dt <= r.timestamp <= hypo_cutoff and r.value_in_mg_per_dl < HYPO_THRESHOLD
-            ],
-            key=lambda e: e["time"],
-        )
 
         # Chart: from 30min before start to 2h after finishing, shaded during the
         # activity itself, with three highlighted points (start / end / +2h).
@@ -234,7 +222,6 @@ def compute_activity_glucose(readings) -> dict:
             "glucose_start_time": at_start.timestamp.strftime("%H:%M") if at_start else None,
             "glucose_post_mgdl": round(at_post.value_in_mg_per_dl, 1) if at_post else None,
             "glucose_post_time": at_post.timestamp.strftime("%H:%M") if at_post else None,
-            "post_workout_hypos": hypo_events,
             "glucose_chart": glucose_chart,
         }
     return out

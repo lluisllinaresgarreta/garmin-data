@@ -75,15 +75,11 @@ def _merge_chart(fresh_gc, cached_gc):
 def _merge_entry(fresh, cached):
     fresh = fresh or {}
     cached = cached or {}
-    hypos_by_time = {h["time"]: h for h in (cached.get("post_workout_hypos") or [])}
-    for h in fresh.get("post_workout_hypos") or []:
-        hypos_by_time[h["time"]] = h
     return {
         "glucose_start_mgdl": fresh.get("glucose_start_mgdl") if fresh.get("glucose_start_mgdl") is not None else cached.get("glucose_start_mgdl"),
         "glucose_start_time": fresh.get("glucose_start_time") if fresh.get("glucose_start_time") is not None else cached.get("glucose_start_time"),
         "glucose_post_mgdl": fresh.get("glucose_post_mgdl") if fresh.get("glucose_post_mgdl") is not None else cached.get("glucose_post_mgdl"),
         "glucose_post_time": fresh.get("glucose_post_time") if fresh.get("glucose_post_time") is not None else cached.get("glucose_post_time"),
-        "post_workout_hypos": sorted(hypos_by_time.values(), key=lambda h: h["time"]),
         "glucose_chart": _merge_chart(fresh.get("glucose_chart"), cached.get("glucose_chart")),
     }
 

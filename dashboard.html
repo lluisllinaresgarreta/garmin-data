@@ -368,7 +368,6 @@
   .glucose-tir .tir-legend .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
 
   .activity-glucose { font-size: 11.5px; color: var(--text-secondary); margin-top: 4px; }
-  .activity-glucose .hypo-note-neutral { color: var(--text-muted); }
 
   /* Activity detail (expandable) */
   .act-detail { padding: 2px 0 16px 46px; }
@@ -1425,40 +1424,6 @@ function wasIntendedEasy(a) {
 // Matches RUN_CADENCE_THRESHOLD in fetch_garmin_data.py: below this (already-doubled,
 // total steps/min) cadence, a chart sample is treated as walking rather than running.
 const RUN_CADENCE_THRESHOLD_JS = 130;
-// Consecutive <70 readings no more than `maxGapMin` apart are the same low, not
-// separate ones, so group them into one episode (its start time + lowest value)
-// instead of listing every individual reading.
-function groupHypoEpisodes(hypos, maxGapMin) {
-  const toMin = t => { const [h,m] = t.split(':').map(Number); return h*60+m; };
-  const sorted = hypos.slice().sort((a,b) => toMin(a.time) - toMin(b.time));
-  const episodes = [];
-  let group = [];
-  sorted.forEach(h => {
-    if (group.length && toMin(h.time) - toMin(group[group.length-1].time) > maxGapMin) {
-      episodes.push(group);
-      group = [];
-    }
-    group.push(h);
-  });
-  if (group.length) episodes.push(group);
-  return episodes.map(g => {
-    const minReading = g.reduce((min,h) => h.value_mgdl < min.value_mgdl ? h : min, g[0]);
-    return { start_time: g[0].time, min_value_mgdl: minReading.value_mgdl, min_time: minReading.time };
-  });
-}
-function activityGlucoseHtml(a) {
-  // Start/end/+2h readings are now shown as labeled points on buildGlucoseChart();
-  // this stays only for the post-workout low-glucose callout, which the chart
-  // doesn't cover (it can happen well after the charted +2h window). Phrased
-  // neutrally and in gray, not attributed to the workout — there could easily be
-  // a meal or something else in between by the time it happens.
-  const hypos = a.post_workout_hypos || [];
-  if (!hypos.length) return '';
-  const episodes = groupHypoEpisodes(hypos, 30);
-  const label = episodes.length === 1 ? '1 episodio' : `${episodes.length} episodios`;
-  const parts = episodes.map(e => `mín. ${fmt(e.min_value_mgdl,0)} mg/dL a las ${e.min_time}`).join(' · ');
-  return `<div class="activity-glucose"><span class="hypo-note-neutral">${label} &lt;70 en las horas siguientes (${parts})</span></div>`;
-}
 function buildGlucoseChart(a) {
   const gc = a.glucose_chart;
   if (!gc || !gc.series || gc.series.length < 2) return '';
@@ -2379,7 +2344,6 @@ function renderActivityDetail(a) {
       strengthComparisonHtml(a),
       buildActivityAnalysis(a),
       buildGlucoseChart(a),
-      activityGlucoseHtml(a),
     ].filter(Boolean);
     if (!parts.length) return '<div class="act-detail-empty">Sin datos detallados disponibles para esta actividad (solo se guarda detalle de las más recientes en cada sincronización).</div>';
     return parts.join('');
@@ -2390,7 +2354,6 @@ function renderActivityDetail(a) {
     kmSplitsTableHtml(a),
     buildActivityAnalysis(a),
     buildGlucoseChart(a),
-    activityGlucoseHtml(a),
   ].filter(Boolean);
   if (!parts.length) return '<div class="act-detail-empty">Sin datos detallados disponibles para esta actividad (solo se guarda detalle de las más recientes en cada sincronización).</div>';
   return parts.join('');
@@ -2643,7 +2606,6 @@ document.getElementById('runAnalysisList').innerHTML = runsWithSplits.map(a => {
       <div class="ra-stat"><div class="rl">Temperatura</div><div class="rv num">${temp}</div></div>
     </div>
     ${coachHtml}
-    ${activityGlucoseHtml(a)}
     ${realZoneBar(a.hr_zones)}
     <div class="ra-eval-row">
       ${a.feel_label ? `<span class="eval-chip">${a.feel_label}</span>` : ''}

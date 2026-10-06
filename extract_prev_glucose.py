@@ -1,7 +1,7 @@
 """
 Read the currently-published dashboard's embedded DATA and pull out the
-per-activity glucose correlation (glucose_start_mgdl/time, glucose_post_mgdl/time,
-post_workout_hypos) for every activity that already has a non-null value.
+per-activity glucose correlation (glucose_start_mgdl/time, glucose_post_mgdl/time)
+for every activity that already has a non-null value.
 
 This exists because compute_activity_glucose() in fetch_libre_data.py can only
 match an activity against readings inside LibreLinkUp's rolling ~12h window --
@@ -55,7 +55,6 @@ def main():
             "glucose_start_time": a.get("glucose_start_time"),
             "glucose_post_mgdl": a.get("glucose_post_mgdl"),
             "glucose_post_time": a.get("glucose_post_time"),
-            "post_workout_hypos": a.get("post_workout_hypos") or [],
             "glucose_chart": gc,
         }
 

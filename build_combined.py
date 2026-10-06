@@ -412,7 +412,6 @@ def main():
         r["glucose_start_time"] = g.get("glucose_start_time") if g else None
         r["glucose_post_mgdl"] = g.get("glucose_post_mgdl") if g else None
         r["glucose_post_time"] = g.get("glucose_post_time") if g else None
-        r["post_workout_hypos"] = g.get("post_workout_hypos") if g else []
         r["glucose_chart"] = g.get("glucose_chart") if g else None
         if aid in sets_raw:
             parsed = parse_strength_session(sets_raw[aid])

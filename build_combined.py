@@ -52,13 +52,12 @@ EXERCISE_NAME_ES = {
     # Piernas
     "BARBELL_SIFF_SQUAT": "Sentadilla Siff con barra",
     "BELT_SQUAT": "Sentadilla con cinturón",
-    "WEIGHTED_LEG_EXTENSIONS": "Extensión de piernas lastrada",
-    "WEIGHTED_LEG_CURL": "Curl femoral lastrado",
     "SQUAT": "Sentadilla",
     "LUNGE": "Zancada",
     "LEG_PRESS": "Prensa de piernas",
     "LEG_CURL": "Curl femoral",
-    "LEG_EXTENSION": "Extensión de piernas",
+    "LEG_EXTENSION": "Extensión de cuádriceps",
+    "LEG_EXTENSIONS": "Extensión de cuádriceps",
     "LEG_RAISE": "Elevación de piernas",
     "CALF_RAISE": "Elevación de gemelos",
     "HIP_RAISE": "Elevación de cadera",
@@ -82,9 +81,26 @@ def humanize_exercise_code(code):
     return " ".join(words).capitalize()
 
 
+WEIGHTED_PREFIX = "WEIGHTED_"
+
+
+def normalize_exercise_name(name):
+    """WEIGHTED_X and X are the same movement with added resistance, so collapse
+    them to one identity for translation, PR tracking, comparisons and the
+    progression charts instead of tracking them as two different exercises."""
+    if name and name.startswith(WEIGHTED_PREFIX):
+        return name[len(WEIGHTED_PREFIX):]
+    return name
+
+
 def exercise_display_name(category, name):
-    key = name or category
-    return EXERCISE_NAME_ES.get(key) or EXERCISE_NAME_ES.get(category or "") or humanize_exercise_code(key)
+    # Always translate from the specific movement NAME when we have one, even if
+    # it's not in our dictionary (humanized instead) — the broader CATEGORY is
+    # only a fallback for sets with no name at all, since category is sometimes
+    # wrong for a given movement (e.g. a leg-extension logged under CRUNCH).
+    if name:
+        return EXERCISE_NAME_ES.get(name) or humanize_exercise_code(name)
+    return EXERCISE_NAME_ES.get(category or "") or humanize_exercise_code(category)
 
 
 # Fine-grained muscle groups, each exercise contributing 1.0 to its primary
@@ -233,7 +249,7 @@ def parse_strength_session(session):
             continue
         exs = s.get("exercises") or []
         category = exs[0].get("category") if exs else None
-        name = exs[0].get("name") if exs else None
+        name = normalize_exercise_name(exs[0].get("name") if exs else None)
         reps = s.get("repetitionCount")
         if category == "WARM_UP":
             continue

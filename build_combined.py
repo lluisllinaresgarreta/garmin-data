@@ -12,6 +12,42 @@ import pandas as pd
 
 DATA_DIR = Path(__file__).parent / "data"
 
+# Keep data.json light: time-series detail (minute-by-minute chart samples, GPS
+# route points, the glucose-vs-activity overlay) is only ever read by the
+# single-activity detail view — never aggregated across history — so it's capped
+# per activity and dropped entirely past DETAIL_WINDOW_DAYS. `exercises` is NOT
+# gated the same way: the strength progression charts walk every past session's
+# exercises to plot long-term weight trends, so trimming it by age would silently
+# break that feature.
+CHART_MAX_POINTS = 150
+DETAIL_WINDOW_DAYS = 30
+
+
+def _decimate_list(arr, max_pts):
+    if not arr or len(arr) <= max_pts:
+        return arr
+    n = len(arr)
+    step = (n - 1) / (max_pts - 1)
+    return [arr[round(i * step)] for i in range(max_pts)]
+
+
+def _decimate_chart(chart, max_pts):
+    if not chart or not chart.get("t") or len(chart["t"]) <= max_pts:
+        return chart
+    n = len(chart["t"])
+    step = (n - 1) / (max_pts - 1)
+    idxs = [round(i * step) for i in range(max_pts)]
+
+    def pick(key):
+        vals = chart.get(key)
+        return [vals[i] for i in idxs] if vals else vals
+
+    return {
+        "t": pick("t"), "hr": pick("hr"), "pace_sec_km": pick("pace_sec_km"),
+        "cadence": pick("cadence"), "elevation_m": pick("elevation_m"),
+        "speed_kmh": pick("speed_kmh"),
+    }
+
 # Exercise name/category code -> Spanish display name. Keyed first by the specific
 # movement code Garmin reports (more precise), falling back to the broader category
 # code below for exercises Garmin didn't resolve to a specific movement.
@@ -588,6 +624,18 @@ def main():
 
     # Per-activity detail already merged above; keep only the general summary here.
     glucose = {k: v for k, v in glucose_raw.items() if k != "activities"}
+
+    # Shrink per-activity time series: cap chart/route points, and drop the
+    # chart/route/glucose_chart detail entirely for activities older than the
+    # detail window (summary fields like distance/avg_hr/exercises are untouched).
+    detail_cutoff = (pd.Timestamp.today() - pd.Timedelta(days=DETAIL_WINDOW_DAYS)).strftime("%Y-%m-%d")
+    for r in act_records:
+        r["chart"] = _decimate_chart(r.get("chart"), CHART_MAX_POINTS)
+        r["route"] = _decimate_list(r.get("route"), CHART_MAX_POINTS)
+        if (r.get("date") or "") < detail_cutoff:
+            r["chart"] = None
+            r["route"] = []
+            r["glucose_chart"] = None
 
     out = {
         "activities": act_records,

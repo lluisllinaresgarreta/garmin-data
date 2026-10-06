@@ -422,22 +422,31 @@ def main():
             r["effective_sets_total"] = parsed["effective_sets_total"]
             r["volume_kg_total"] = parsed["volume_kg_total"]
 
-    # Personal-record flag per exercise: mark an exercise's one_rm_est as a PR only
-    # if it beats every STRICTLY EARLIER session's best for that same exercise name,
-    # so this needs all strength sessions parsed above before it can compare across
-    # them chronologically (oldest first).
+    # Personal-record flag per exercise: a record is a heavier best set, or the
+    # same weight for more reps — not a higher Epley-estimated 1RM, which a
+    # lighter-but-higher-rep set can "win" on paper despite lifting less. That
+    # mismatch let a record badge appear on a session shown going DOWN vs. the
+    # last one, since the comparison arrow is weight-then-reps too (see
+    # strengthComparisonHtml client-side) — matching the basis keeps them
+    # consistent. Needs every strength session parsed above, compared chronologically
+    # (oldest first), strictly earlier sessions only.
     strength_records = sorted(
         (r for r in act_records if r.get("exercises")),
         key=lambda r: r.get("date") or "",
     )
-    best_1rm_so_far = {}
+    best_set_so_far = {}
     for r in strength_records:
         for ex in r["exercises"]:
-            rm = ex.get("one_rm_est")
-            prev_best = best_1rm_so_far.get(ex["name"])
-            ex["is_pr"] = rm is not None and (prev_best is None or rm > prev_best)
-            if rm is not None and (prev_best is None or rm > prev_best):
-                best_1rm_so_far[ex["name"]] = rm
+            bs = ex.get("best_set")
+            if not bs or bs.get("weight_kg") is None:
+                ex["is_pr"] = False
+                continue
+            weight, reps = bs["weight_kg"], bs.get("reps") or 0
+            prev = best_set_so_far.get(ex["name"])
+            is_record = prev is None or weight > prev[0] or (weight == prev[0] and reps > prev[1])
+            ex["is_pr"] = is_record
+            if is_record:
+                best_set_so_far[ex["name"]] = (weight, reps)
 
     daily = daily.sort_values("date")
     daily_records = daily.fillna("").to_dict(orient="records")

@@ -368,7 +368,7 @@
   .glucose-tir .tir-legend .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
 
   .activity-glucose { font-size: 11.5px; color: var(--text-secondary); margin-top: 4px; }
-  .activity-glucose .hypo-note { color: var(--critical); font-weight: 600; }
+  .activity-glucose .hypo-note-neutral { color: var(--text-muted); }
 
   /* Activity detail (expandable) */
   .act-detail { padding: 2px 0 16px 46px; }
@@ -451,7 +451,7 @@
     .exercise-table, .exercise-table tbody { display: block; width: 100%; }
     .exercise-table .exercise-row { display: block; padding: 7px 4px; border-top: 1px solid var(--border); }
     .exercise-table .exercise-row td { display: inline; border: none; padding: 0; white-space: normal; font-size: 12px; }
-    .exercise-table .exercise-row td:first-child { display: block; font-weight: 600; margin-bottom: 2px; }
+    .exercise-table .exercise-row td:first-child { display: block; width: 100%; font-weight: 600; margin-bottom: 2px; white-space: normal; }
     .exercise-table .exercise-row td:not(:first-child) { color: var(--text-secondary); }
     .exercise-table .exercise-row td:nth-child(2)::after,
     .exercise-table .exercise-row td:nth-child(3)::after,
@@ -883,7 +883,6 @@ function fmtRecoveryMinutes(min) {
 const tiles = [
   { label: 'Training Readiness', value: fmt(lastReadiness.training_readiness, 0), unit: readinessLevel(lastReadiness.training_readiness), foot: 'Sueño + HRV + carga combinados' },
   { label: '10K estimado', value: fmtClock(lastRace.time10K), unit: '', foot: DATA.racePredictions.length ? 'Predicción de Garmin, hoy' : 'Aún sin datos suficientes' },
-  { label: 'Recuperación', value: fmtRecoveryMinutes(lastReadiness.recovery_time_minutes), unit: '', foot: 'Hasta la próxima sesión fuerte' },
   { label: 'Sueño anoche', value: fmt(last.sleep_score, 0), unit: '/ 100', foot: fmt(last.sleep_hours,1) + ' h de sueño' },
 ];
 document.getElementById('tiles').innerHTML = tiles.map(t => `
@@ -922,34 +921,50 @@ if (proximityHitRaw && isWithinLastDays(proximityHitRaw.date, 7)) {
   if (laterContradicting.length < 2) proximityHit = proximityHitRaw;
 }
 
-// What today's plan actually calls for, so the readiness insight never tells you to
-// go hard on a day Coach has down as strength or rest.
-const todayPlan = coachPlan.filter(w => w.date === todayStr);
-const todayPlanHasRun = todayPlan.some(w => w.sport === 'running');
-const todayPlanHasStrength = todayPlan.some(w => w.sport === 'strength_training');
+// What today's plan actually calls for. The planner (same source as the "Hoy" card
+// — strength/bike sessions it assigns aren't in Garmin Coach's own plan at all) is
+// the authority here, but it only resolves once plannerData loads asynchronously, so
+// this starts with a same-structure placeholder and updateReadinessInsight() (called
+// from renderTodayCard, which already computes todayEntry) patches it in place once
+// the real plan is known — keeping both cards in sync instead of guessing from
+// Garmin Coach's running-only schedule.
+function todayPlanSummary(todayEntry) {
+  const active = todayEntry ? todayEntry.sessions.filter(s => s.status !== 'skipped') : [];
+  if (!active.length) return { label: null, hasRun: false };
+  return { label: active.map(s => s.label).join(' + '), hasRun: active.some(s => s.type === 'run') };
+}
+function readinessInsightHtml(todayEntry) {
+  if (lastReadiness.training_readiness === undefined || lastReadiness.training_readiness === '') {
+    return { tone: 'neutral', html: `Aún no hay suficiente historial para calcular tu Training Readiness diario — debería aparecer en los próximos días de uso.` };
+  }
+  const tone = lastReadiness.training_readiness >= 70 ? 'good' : lastReadiness.training_readiness >= 40 ? 'neutral' : 'warning';
+  const recovMin = Number(lastReadiness.recovery_time_minutes);
+  const hadActivityYesterday = DATA.activities.some(a => a.date === dateMinus1(lastReadiness.date || last.date));
+  const recovPhrase = recovMin <= 5 ? 'ya sin tiempo de recuperación pendiente'
+    : hadActivityYesterday ? `tras el entreno de ayer, con ${fmtRecoveryMinutes(recovMin).toLowerCase()} de recuperación estimada todavía`
+    : `con ${fmtRecoveryMinutes(recovMin).toLowerCase()} de recuperación estimada todavía`;
+  const { label, hasRun } = todayPlanSummary(todayEntry);
+  let advice;
+  if (!label) advice = 'hoy toca descanso según tu planificador.';
+  else if (!hasRun) advice = `hoy toca ${label} según tu planificador, no una sesión de carrera.`;
+  else advice = lastReadiness.training_readiness >= 70 ? 'buen día para una sesión de calidad.' : lastReadiness.training_readiness >= 40 ? 'un día para intensidad moderada, sin forzar.' : 'mejor priorizar descanso o algo suave hoy.';
+  return { tone, html: `Tu <strong>Training Readiness de hoy es ${fmt(lastReadiness.training_readiness,0)} (${readinessLevel(lastReadiness.training_readiness)})</strong>, ${recovPhrase} — ${advice}` };
+}
+function updateReadinessInsight(todayEntry) {
+  const dotEl = document.getElementById('readinessInsight-dot');
+  const textEl = document.getElementById('readinessInsight-text');
+  if (!dotEl || !textEl) return;
+  const { tone, html } = readinessInsightHtml(todayEntry);
+  dotEl.className = 'dot ' + tone;
+  textEl.innerHTML = html;
+}
 
 const insights = [
   {
     tone: 'warning',
     html: `Tu <strong>carga aeróbica de baja intensidad</strong> (${fmt(lb.monthlyLoadAerobicLow,0)}) está por debajo del rango objetivo de Garmin (${lb.monthlyLoadAerobicLowTargetMin}–${lb.monthlyLoadAerobicLowTargetMax}). Con ${runCount} carreras (${fmt(totalRunKm,1)} km)${vsPhrase}, añadir rodajes suaves en Z2 ayudaría a construir la base del 10K.`
   },
-  {
-    tone: lastReadiness.training_readiness >= 70 ? 'good' : lastReadiness.training_readiness >= 40 ? 'neutral' : 'warning',
-    html: lastReadiness.training_readiness !== undefined && lastReadiness.training_readiness !== ''
-      ? (() => {
-          const recovMin = Number(lastReadiness.recovery_time_minutes);
-          const hadActivityYesterday = DATA.activities.some(a => a.date === dateMinus1(lastReadiness.date || last.date));
-          const recovPhrase = recovMin <= 5 ? 'ya sin tiempo de recuperación pendiente'
-            : hadActivityYesterday ? `tras el entreno de ayer, con ${fmtRecoveryMinutes(recovMin).toLowerCase()} de recuperación estimada todavía`
-            : `con ${fmtRecoveryMinutes(recovMin).toLowerCase()} de recuperación estimada todavía`;
-          let advice;
-          if (!todayPlan.length) advice = 'hoy toca descanso según tu plan.';
-          else if (todayPlanHasStrength && !todayPlanHasRun) advice = `hoy toca ${todayPlan[0].title ? '"' + todayPlan[0].title + '"' : 'fuerza'} según Coach, no una sesión de carrera.`;
-          else advice = lastReadiness.training_readiness >= 70 ? 'buen día para una sesión de calidad.' : lastReadiness.training_readiness >= 40 ? 'un día para intensidad moderada, sin forzar.' : 'mejor priorizar descanso o algo suave hoy.';
-          return `Tu <strong>Training Readiness de hoy es ${fmt(lastReadiness.training_readiness,0)} (${readinessLevel(lastReadiness.training_readiness)})</strong>, ${recovPhrase} — ${advice}`;
-        })()
-      : `Aún no hay suficiente historial para calcular tu Training Readiness diario — debería aparecer en los próximos días de uso.`
-  },
+  { id: 'readinessInsight', ...readinessInsightHtml(null) },
   {
     tone: proximityHit ? 'warning' : 'good',
     html: proximityHit
@@ -1026,7 +1041,7 @@ if (z2Weeks.length >= 2) {
 }
 
 document.getElementById('insights').innerHTML = insights.map(i => `
-  <div class="insight"><div class="dot ${i.tone}"></div><p>${i.html}</p></div>`).join('');
+  <div class="insight"><div class="dot ${i.tone}"${i.id ? ` id="${i.id}-dot"` : ''}></div><p${i.id ? ` id="${i.id}-text"` : ''}>${i.html}</p></div>`).join('');
 
 // ---------- Camino al 10K ----------
 const raceLabels = [
@@ -1410,13 +1425,39 @@ function wasIntendedEasy(a) {
 // Matches RUN_CADENCE_THRESHOLD in fetch_garmin_data.py: below this (already-doubled,
 // total steps/min) cadence, a chart sample is treated as walking rather than running.
 const RUN_CADENCE_THRESHOLD_JS = 130;
+// Consecutive <70 readings no more than `maxGapMin` apart are the same low, not
+// separate ones, so group them into one episode (its start time + lowest value)
+// instead of listing every individual reading.
+function groupHypoEpisodes(hypos, maxGapMin) {
+  const toMin = t => { const [h,m] = t.split(':').map(Number); return h*60+m; };
+  const sorted = hypos.slice().sort((a,b) => toMin(a.time) - toMin(b.time));
+  const episodes = [];
+  let group = [];
+  sorted.forEach(h => {
+    if (group.length && toMin(h.time) - toMin(group[group.length-1].time) > maxGapMin) {
+      episodes.push(group);
+      group = [];
+    }
+    group.push(h);
+  });
+  if (group.length) episodes.push(group);
+  return episodes.map(g => {
+    const minReading = g.reduce((min,h) => h.value_mgdl < min.value_mgdl ? h : min, g[0]);
+    return { start_time: g[0].time, min_value_mgdl: minReading.value_mgdl, min_time: minReading.time };
+  });
+}
 function activityGlucoseHtml(a) {
   // Start/end/+2h readings are now shown as labeled points on buildGlucoseChart();
-  // this stays only for the post-workout hypoglycemia callout, which the chart
-  // doesn't cover (it can happen well after the charted +2h window).
+  // this stays only for the post-workout low-glucose callout, which the chart
+  // doesn't cover (it can happen well after the charted +2h window). Phrased
+  // neutrally and in gray, not attributed to the workout — there could easily be
+  // a meal or something else in between by the time it happens.
   const hypos = a.post_workout_hypos || [];
   if (!hypos.length) return '';
-  return `<div class="activity-glucose"><span class="hypo-note">⚠️ ${hypos.length} hipo${hypos.length>1?'s':''} después del entreno: ${hypos.map(h=>`${fmt(h.value_mgdl,0)} mg/dL a las ${h.time}`).join(', ')}</span></div>`;
+  const episodes = groupHypoEpisodes(hypos, 30);
+  const label = episodes.length === 1 ? '1 episodio' : `${episodes.length} episodios`;
+  const parts = episodes.map(e => `mín. ${fmt(e.min_value_mgdl,0)} mg/dL a las ${e.min_time}`).join(' · ');
+  return `<div class="activity-glucose"><span class="hypo-note-neutral">${label} &lt;70 en las horas siguientes (${parts})</span></div>`;
 }
 function buildGlucoseChart(a) {
   const gc = a.glucose_chart;
@@ -2617,11 +2658,24 @@ const runTrendsData = DATA.runTrends || [];
 document.getElementById('runTrendsSub').textContent = runTrendsData.length
   ? `Últimas ${runTrendsData.length} semana(s) con carreras registradas (desde ${fmtDateShort(runTrendsData[0].week_start)})`
   : 'Aún no hay suficientes semanas con carreras registradas';
-document.getElementById('runTrendsCharts').innerHTML = runTrendsData.length > 1
-  ? lineChart('Km totales / semana', runTrendsData.map(w => ({date:w.week_start, v:Number(w.km_total)})), ' km', 1)
-    + lineChart('Carrera más larga', runTrendsData.map(w => ({date:w.week_start, v:Number(w.longest_run_km)})), ' km', 1)
-    + (runTrendsData.some(w=>w.avg_cadence) ? lineChart('Cadencia media (corriendo)', runTrendsData.map(w => ({date:w.week_start, v:w.avg_cadence !== null && w.avg_cadence !== undefined ? Number(w.avg_cadence) : null})), ' spm', 0) : '')
-    + (runTrendsData.some(w=>w.z2_pace_sec_km) ? lineChart('Ritmo medio en Z2', runTrendsData.map(w => ({date:w.week_start, v:w.z2_pace_sec_km !== null && w.z2_pace_sec_km !== undefined ? Number(w.z2_pace_sec_km) : null})), '', 0, undefined, undefined, fmtPace) : '')
+// A metric with fewer than 2 real (non-null) weeks can't show a trend line, so
+// show its current value instead of a near-empty/misleading chart.
+function trendMetric(title, unit, decimals, getValue, fmtFn) {
+  const points = runTrendsData.map(w => ({ date: w.week_start, v: getValue(w) }));
+  const validPoints = points.filter(p => p.v !== null && p.v !== undefined && !Number.isNaN(Number(p.v)));
+  if (validPoints.length >= 2) return lineChart(title, points, unit, decimals, undefined, undefined, fmtFn);
+  if (validPoints.length === 1) {
+    const last = validPoints[validPoints.length - 1];
+    const displayVal = fmtFn ? fmtFn(last.v) : fmt(last.v, decimals) + unit;
+    return `<div class="chart-box"><div class="chart-head"><span class="chart-title">${title}</span><span class="chart-last num">${displayVal}</span></div><div class="track-note" style="margin-top:8px;">Se necesitan 2+ semanas para ver la tendencia.</div></div>`;
+  }
+  return '';
+}
+document.getElementById('runTrendsCharts').innerHTML = runTrendsData.length
+  ? trendMetric('Km totales / semana', ' km', 1, w => Number(w.km_total))
+    + trendMetric('Carrera más larga', ' km', 1, w => Number(w.longest_run_km))
+    + trendMetric('Cadencia media (corriendo)', ' spm', 0, w => w.avg_cadence !== null && w.avg_cadence !== undefined ? Number(w.avg_cadence) : null)
+    + trendMetric('Ritmo medio en Z2', '', 0, w => w.z2_pace_sec_km !== null && w.z2_pace_sec_km !== undefined ? Number(w.z2_pace_sec_km) : null, fmtPace)
   : '<div class="track-note">Necesitas al menos 2 semanas con carreras registradas para ver la tendencia.</div>';
 
 // ---------- Resumen semanal ----------
@@ -3177,6 +3231,7 @@ if (stageTotal > 0) {
 
   function renderTodayCard(result) {
     const todayEntry = result.plan.find(d => d.date === todayStr);
+    updateReadinessInsight(todayEntry);
     const readiness = lastReadiness.training_readiness;
     let sem;
     if (readiness === '' || readiness === undefined) sem = { cls:'flat', title:'Sin Training Readiness todavía', advice:'Aún no hay dato de hoy.' };

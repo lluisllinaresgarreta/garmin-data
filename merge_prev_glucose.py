@@ -97,10 +97,12 @@ def main():
 
     prev = json.loads(prev_path.read_text(encoding="utf-8"))
     glucose = json.loads(glucose_path.read_text(encoding="utf-8"))
-    if not glucose.get("available"):
-        print("glucose.json marcado como no disponible -- no se fusiona nada.")
-        return
 
+    # Per-activity correlations are restored regardless of whether TODAY's fetch
+    # succeeded (glucose["available"]) -- that flag is about the top-level summary
+    # (latest reading, night stats), not about whether there's prior per-activity
+    # data worth keeping. Bailing out here on a failed fetch used to silently
+    # discard everything extract_prev_glucose.py had just recovered.
     activities = glucose.setdefault("activities", {})
     touched = 0
     for act_id, prev_entry in prev.items():

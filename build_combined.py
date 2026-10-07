@@ -487,10 +487,13 @@ def main():
     daily_records = daily.fillna("").to_dict(orient="records")
 
     status = load_json("training_status.json", {})
-    vo2 = status.get("mostRecentVO2Max", {}).get("generic", {})
-    load_balance = list(status.get("mostRecentTrainingLoadBalance", {}).get("metricsTrainingLoadBalanceDTOMap", {}).values())
+    # Garmin's API can return these sub-keys as an explicit `null` (not just
+    # missing) when it has nothing to report yet, so `.get(key, {})` alone
+    # isn't enough -- `or {}` catches the null case too.
+    vo2 = (status.get("mostRecentVO2Max") or {}).get("generic", {})
+    load_balance = list((status.get("mostRecentTrainingLoadBalance") or {}).get("metricsTrainingLoadBalanceDTOMap", {}).values())
     load_balance = load_balance[0] if load_balance else {}
-    train_status = list(status.get("mostRecentTrainingStatus", {}).get("latestTrainingStatusData", {}).values())
+    train_status = list((status.get("mostRecentTrainingStatus") or {}).get("latestTrainingStatusData", {}).values())
     train_status = train_status[0] if train_status else {}
 
     race_raw = load_json("race_predictions.json", [])

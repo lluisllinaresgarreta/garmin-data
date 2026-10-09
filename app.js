@@ -28,7 +28,16 @@ function fmtDateShort(iso) {
 }
 
 // ---------- Shared derived data ----------
-const dailyWithData = DATA.daily.filter(d => d.sleep_score !== '');
+// A day only counts as having real sleep/HRV data once the watch has actually
+// uploaded it — Garmin Connect can take a few hours after waking, so the early
+// morning sync can catch a "today" row with sleep_hours=0 and hrv_avg empty.
+// Without this check that partial row would look like a closed, valid night.
+function isDayComplete(d) {
+  return !!d && d.sleep_score !== '' && d.sleep_score !== null && d.sleep_score !== undefined
+    && Number(d.sleep_hours) > 0
+    && d.hrv_avg !== '' && d.hrv_avg !== null && d.hrv_avg !== undefined && !Number.isNaN(Number(d.hrv_avg));
+}
+const dailyWithData = DATA.daily.filter(isDayComplete);
 const last = dailyWithData[dailyWithData.length - 1] || {};
 const readinessRows = DATA.daily.filter(d => d.training_readiness !== '' && d.training_readiness !== undefined);
 const lastReadiness = readinessRows[readinessRows.length - 1] || {};
@@ -40,6 +49,8 @@ const splitsEntries = Object.values(DATA.runSplits).sort((a,b) => a.date < b.dat
 const refEntry = splitsEntries.find(e => /referencia/i.test(e.name)) || splitsEntries[0];
 const buildEntry = splitsEntries.find(e => e !== refEntry && e.active_laps.length > 1);
 const todayStr = new Date().toISOString().slice(0, 10);
+const todayDailyRaw = DATA.daily.find(d => d.date === todayStr) || null;
+const todayDailyComplete = isDayComplete(todayDailyRaw);
 const coachPlan = (DATA.coachPlan || []).slice().sort((a, b) => (a.date < b.date ? -1 : 1));
 const STEP_TYPE_LABEL = { warmup: 'Calent.', cooldown: 'Enfr.', interval: 'Tramo', recovery: 'Recup.', rest: 'Descanso', repeat: 'Repite', other: 'Libre' };
 function stepShortLabel(step) {
@@ -75,6 +86,16 @@ function fmtRecoveryMinutes(min) {
   if (m < 60) return `${Math.round(m)} min`;
   const h = Math.floor(m / 60), rem = Math.round(m % 60);
   return rem > 0 ? `${h}h ${rem}min` : `${h}h`;
+}
+
+// ---------- Header sync time ----------
+if (DATA.generatedAt) {
+  const genDate = new Date(DATA.generatedAt);
+  if (!Number.isNaN(genDate.getTime())) {
+    const hh = String(genDate.getHours()).padStart(2, '0');
+    const mm = String(genDate.getMinutes()).padStart(2, '0');
+    document.getElementById('syncTime').textContent = `Datos de las ${hh}:${mm}`;
+  }
 }
 
 // ---------- Stat tiles ----------
@@ -2009,7 +2030,12 @@ if (stageTotal > 0) {
     return `${d.getFullYear()}-W${String(weekNo).padStart(2,'0')}`;
   }
   function trailingAvg(key, n) {
-    const rows = dailyWithData.slice(0, -1); // exclude today
+    // Exclude today by date, not by position: dailyWithData already drops an
+    // incomplete today, so when today IS complete it's the last row and this
+    // still must not compare it against itself; when today is missing, the
+    // last row is already yesterday and a positional slice(0,-1) would wrongly
+    // drop that real day too.
+    const rows = dailyWithData.filter(r => r.date !== todayStr);
     const vals = rows.filter(r => r[key] !== '' && r[key] !== undefined && r[key] !== null).slice(-n).map(r => Number(r[key]));
     if (!vals.length) return null;
     return vals.reduce((a,b)=>a+b,0) / vals.length;
@@ -2476,13 +2502,20 @@ if (stageTotal > 0) {
 
     const z2Low = ZONE_BOUNDS[1], z2High = ZONE_BOUNDS[2] - 1;
     const metrics = [
-      { key:'hrv_avg', label:'HRV', unit:' ms', higher:true, dec:0 },
+      { key:'hrv_avg', label:'HRV', unit:' ms', higher:true, dec:0, pending:true },
       { key:'resting_hr', label:'FC reposo', unit:' ppm', higher:false, dec:0 },
-      { key:'sleep_hours', label:'Horas sueño', unit:' h', higher:true, dec:1 },
-      { key:'sleep_score', label:'Sueño', unit:'/100', higher:true, dec:0 },
+      { key:'sleep_hours', label:'Horas sueño', unit:' h', higher:true, dec:1, pending:true },
+      { key:'sleep_score', label:'Sueño', unit:'/100', higher:true, dec:0, pending:true },
     ];
     document.getElementById('recoveryGrid').innerHTML = metrics.map(m => {
-      const curRaw = last[m.key];
+      if (m.pending && !todayDailyComplete) {
+        return `<div class="recovery-item">
+          <div class="rl">${m.label}</div>
+          <div class="rv" style="color:var(--text-muted);font-size:12.5px;font-weight:500;">pendiente de sincronizar el reloj</div>
+        </div>`;
+      }
+      const todayRaw = todayDailyRaw ? todayDailyRaw[m.key] : undefined;
+      const curRaw = (todayRaw !== '' && todayRaw !== undefined && todayRaw !== null) ? todayRaw : last[m.key];
       const cur = (curRaw === '' || curRaw === undefined) ? null : Number(curRaw);
       const base = trailingAvg(m.key, 7);
       const d = deltaChip(cur, base, m.higher, m.dec, m.unit);

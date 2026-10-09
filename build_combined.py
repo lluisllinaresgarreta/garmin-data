@@ -5,7 +5,7 @@ Uso:
     python build_combined.py
 """
 import json
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -655,6 +655,7 @@ def main():
         "bodyComposition": body_composition,
         "runTrends": run_trends,
         "glucose": glucose,
+        "generatedAt": datetime.now().astimezone().isoformat(),
     }
     with open(DATA_DIR / "combined.json", "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False)

@@ -180,8 +180,10 @@ function updateReadinessInsight(todayEntry) {
 
 const insights = [
   {
-    tone: 'warning',
-    html: `Tu <strong>carga aeróbica de baja intensidad</strong> (${fmt(lb.monthlyLoadAerobicLow,0)}) está por debajo del rango objetivo de Garmin (${lb.monthlyLoadAerobicLowTargetMin}–${lb.monthlyLoadAerobicLowTargetMax}). Con ${runCount} carreras (${fmt(totalRunKm,1)} km)${vsPhrase}, añadir rodajes suaves en Z2 ayudaría a construir la base del 10K.`
+    tone: lb.monthlyLoadAerobicLow !== undefined ? 'warning' : 'neutral',
+    html: lb.monthlyLoadAerobicLow !== undefined
+      ? `Tu <strong>carga aeróbica de baja intensidad</strong> (${fmt(lb.monthlyLoadAerobicLow,0)}) está por debajo del rango objetivo de Garmin (${lb.monthlyLoadAerobicLowTargetMin}–${lb.monthlyLoadAerobicLowTargetMax}). Con ${runCount} carreras (${fmt(totalRunKm,1)} km)${vsPhrase}, añadir rodajes suaves en Z2 ayudaría a construir la base del 10K.`
+      : `El balance de carga mensual de Garmin (aeróbico/anaeróbico) todavía no está disponible hoy — puede tardar unas horas en calcularse tras la sincronización.`
   },
   { id: 'readinessInsight', ...readinessInsightHtml(null) },
   {
@@ -436,42 +438,61 @@ document.getElementById('strengthInsight').innerHTML = `
   }</p></div>`;
 
 // ---------- Training load ----------
-const acute = DATA.trainingStatus.acuteTrainingLoadDTO;
-document.getElementById('acwrBadgeVal').textContent = (acute.dailyTrainingLoadAcute / acute.dailyTrainingLoadChronic).toFixed(2);
-const ACWR_STATUS = {
-  LOW: { label: 'Bajo', cls: 'warning' },
-  OPTIMAL: { label: 'Óptimo', cls: 'good' },
-  HIGH: { label: 'Alto', cls: 'critical' },
-  VERY_HIGH: { label: 'Muy alto', cls: 'critical' },
-};
-const acwrInfo = ACWR_STATUS[acute.acwrStatus] || { label: acute.acwrStatus, cls: 'good' };
+// Garmin can take a few hours to compute today's training status/load balance
+// (same kind of lag as sleep/HRV) -- acuteTrainingLoadDTO and the loadBalance
+// fields come back as {} meanwhile, so every access here is guarded instead of
+// assumed present. Without this the whole page used to throw and show nothing.
+const acute = DATA.trainingStatus.acuteTrainingLoadDTO || null;
 const acwrBadgeEl = document.getElementById('acwrBadge');
-acwrBadgeEl.textContent = acwrInfo.label;
-acwrBadgeEl.className = 'badge ' + acwrInfo.cls;
-document.getElementById('acuteVal').textContent = acute.dailyTrainingLoadAcute;
-document.getElementById('chronicVal').textContent = acute.dailyTrainingLoadChronic;
-const acMax = Math.max(acute.dailyTrainingLoadAcute, acute.dailyTrainingLoadChronic, acute.maxTrainingLoadChronic);
-document.getElementById('acuteBar').style.width = (acute.dailyTrainingLoadAcute / acMax * 100) + '%';
-document.getElementById('chronicBar').style.width = (acute.dailyTrainingLoadChronic / acMax * 100) + '%';
+if (acute) {
+  document.getElementById('acwrBadgeVal').textContent = (acute.dailyTrainingLoadAcute / acute.dailyTrainingLoadChronic).toFixed(2);
+  const ACWR_STATUS = {
+    LOW: { label: 'Bajo', cls: 'warning' },
+    OPTIMAL: { label: 'Óptimo', cls: 'good' },
+    HIGH: { label: 'Alto', cls: 'critical' },
+    VERY_HIGH: { label: 'Muy alto', cls: 'critical' },
+  };
+  const acwrInfo = ACWR_STATUS[acute.acwrStatus] || { label: acute.acwrStatus, cls: 'good' };
+  acwrBadgeEl.textContent = acwrInfo.label;
+  acwrBadgeEl.className = 'badge ' + acwrInfo.cls;
+  document.getElementById('acuteVal').textContent = acute.dailyTrainingLoadAcute;
+  document.getElementById('chronicVal').textContent = acute.dailyTrainingLoadChronic;
+  const acMax = Math.max(acute.dailyTrainingLoadAcute, acute.dailyTrainingLoadChronic, acute.maxTrainingLoadChronic);
+  document.getElementById('acuteBar').style.width = (acute.dailyTrainingLoadAcute / acMax * 100) + '%';
+  document.getElementById('chronicBar').style.width = (acute.dailyTrainingLoadChronic / acMax * 100) + '%';
+} else {
+  document.getElementById('acwrBadgeVal').textContent = '—';
+  acwrBadgeEl.textContent = 'Sin datos hoy';
+  acwrBadgeEl.className = 'badge';
+  document.getElementById('acuteVal').textContent = '—';
+  document.getElementById('chronicVal').textContent = '—';
+  document.getElementById('acuteBar').style.width = '0%';
+  document.getElementById('chronicBar').style.width = '0%';
+}
 
 const loadRows = [
   { name: 'Aeróbico bajo', val: lb.monthlyLoadAerobicLow, min: lb.monthlyLoadAerobicLowTargetMin, max: lb.monthlyLoadAerobicLowTargetMax },
   { name: 'Aeróbico alto', val: lb.monthlyLoadAerobicHigh, min: lb.monthlyLoadAerobicHighTargetMin, max: lb.monthlyLoadAerobicHighTargetMax },
   { name: 'Anaeróbico',    val: lb.monthlyLoadAnaerobic,    min: lb.monthlyLoadAnaerobicTargetMin,    max: lb.monthlyLoadAnaerobicTargetMax },
 ];
-const rowMax = Math.max(...loadRows.map(r => Math.max(r.val, r.max))) * 1.1;
-document.getElementById('loadBars').innerHTML = loadRows.map(r => {
-  const short = r.val < r.min;
-  return `
-  <div class="load-bar-row">
-    <div class="lb-head"><span class="name">${r.name}</span><span class="val num">${fmt(r.val,0)}</span></div>
-    <div class="lb-track">
-      <div class="lb-target" style="left:${r.min/rowMax*100}%; width:${(r.max-r.min)/rowMax*100}%;"></div>
-      <div class="lb-fill ${short ? 'short' : ''}" style="width:${r.val/rowMax*100}%;"></div>
-    </div>
-    <div class="lb-caption">Objetivo mensual: ${r.min}–${r.max}${short ? ' · por debajo del objetivo' : ''}</div>
-  </div>`;
-}).join('');
+const hasLoadBalance = loadRows.every(r => r.val !== undefined && r.min !== undefined && r.max !== undefined);
+if (hasLoadBalance) {
+  const rowMax = Math.max(...loadRows.map(r => Math.max(r.val, r.max))) * 1.1;
+  document.getElementById('loadBars').innerHTML = loadRows.map(r => {
+    const short = r.val < r.min;
+    return `
+    <div class="load-bar-row">
+      <div class="lb-head"><span class="name">${r.name}</span><span class="val num">${fmt(r.val,0)}</span></div>
+      <div class="lb-track">
+        <div class="lb-target" style="left:${r.min/rowMax*100}%; width:${(r.max-r.min)/rowMax*100}%;"></div>
+        <div class="lb-fill ${short ? 'short' : ''}" style="width:${r.val/rowMax*100}%;"></div>
+      </div>
+      <div class="lb-caption">Objetivo mensual: ${r.min}–${r.max}${short ? ' · por debajo del objetivo' : ''}</div>
+    </div>`;
+  }).join('');
+} else {
+  document.getElementById('loadBars').innerHTML = `<div class="track-note">Balance de carga mensual todavía no disponible hoy.</div>`;
+}
 
 // ---------- Line charts ----------
 function lineChart(title, series, unit, decimals, refValue, refLabel, fmtFn) {

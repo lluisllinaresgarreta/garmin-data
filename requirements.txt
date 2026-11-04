@@ -3,3 +3,4 @@ python-dotenv>=1.0.0
 pandas>=2.0.0
 pylibrelinkup>=0.11.0
 requests>=2.28.0
+hevy2garmin>=0.5.19

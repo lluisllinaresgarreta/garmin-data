@@ -5,3 +5,4 @@ __pycache__/
 .garminconnect/
 combined_ca_bundle.pem
 scratch/
+data.json

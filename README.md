@@ -58,6 +58,15 @@ de Hevy en una única actividad. A partir de ahí, el pipeline normal
 (`fetch_garmin_data.py` → `build_combined.py`) los recoge igual que cualquier
 otra actividad de fuerza, sin cambios.
 
+**Limitación conocida con Strava**: la sincronización Garmin→Strava solo
+empuja la actividad en el momento en que se crea (vacía, antes de que
+hevy2garmin la fusione) — Strava nunca recoge la edición posterior, así que la
+versión fusionada nunca llega a Strava por esa vía. Decisión tomada: usar la
+integración nativa Hevy→Strava (Ajustes → Integraciones → Strava en la app de
+Hevy) para que las sesiones de fuerza lleguen a Strava con ejercicios/series
+(sin la FC del reloj, que sí se queda en Garmin Connect). Esto deja un
+duplicado vacío en Strava (el que vino de Garmin) que Lluis borra a mano.
+
 ## Entrenador (notas y plan desde el chat de Claude)
 
 Lluis ya no sigue el plan de Garmin Coach; su entrenador es el chat de Claude.

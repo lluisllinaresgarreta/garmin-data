@@ -493,6 +493,27 @@
   }
   .planner-skip-btn:hover { background: var(--surface-card); }
 
+  /* Notas y plan del entrenador (Claude) */
+  .coach-notes { display: flex; flex-direction: column; gap: 8px; }
+  .coach-note {
+    padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-card);
+  }
+  .coach-note .cn-date { font-size: 10.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 3px; }
+  .coach-note .cn-text { font-size: 13px; line-height: 1.45; white-space: pre-wrap; }
+
+  .plan-list { display: flex; flex-direction: column; gap: 8px; }
+  .plan-row {
+    display: flex; align-items: center; gap: 12px; padding: 10px 12px; flex-wrap: wrap;
+    border: 1px solid var(--border); border-radius: 10px; background: var(--surface-card);
+  }
+  .plan-date { flex: none; width: 42px; text-align: center; }
+  .plan-date .d { font-size: 15px; font-weight: 700; font-family: "Bricolage Grotesque", system-ui, sans-serif; line-height: 1.1; }
+  .plan-date .m { font-size: 9.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .plan-main { flex: 1; min-width: 0; }
+  .plan-main .t { font-size: 13.5px; font-weight: 600; }
+  .plan-main .s { font-size: 11.5px; color: var(--text-muted); margin-top: 1px; }
+  .plan-row.is-today { background: var(--surface-sunken); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+
   /* Pasos de entreno (planificador semanal) */
   .plan-steps { flex-basis: 100%; display: flex; gap: 5px; flex-wrap: wrap; margin-top: 7px; padding-left: 54px; }
   .plan-steps.compact { padding-left: 0; }

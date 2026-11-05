@@ -2706,6 +2706,68 @@ if (stageTotal > 0) {
   })();
 })();
 
+// ---------- Mensaje y plan de tu entrenador (escritos por Claude vía db) ----------
+(function () {
+  const notesEl = document.getElementById('coachNotesList');
+  const sessionsEl = document.getElementById('coachSessionsList');
+  if (!notesEl || !sessionsEl) return;
+
+  const COACH_MONTH_ABBR = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
+  const SESSION_TYPE_LABEL = { run: 'Carrera', strength: 'Fuerza', bike: 'Bici', rest: 'Descanso', other: 'Entreno' };
+  const SESSION_TYPE_ICON = { run: '🏃', strength: '🏋️', bike: '🚴', rest: '😴', other: '📝' };
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
+  function renderNotes(docs) {
+    notesEl.innerHTML = docs.length ? docs.map(d => {
+      const n = d.data() || {};
+      const when = n.created_at ? fmtDateShort(String(n.created_at).slice(0, 10)) : '';
+      return `<div class="coach-note"><div class="cn-date">${when}</div><div class="cn-text">${esc(n.text)}</div></div>`;
+    }).join('') : '<div class="track-note">Tu entrenador aún no ha dejado ninguna nota.</div>';
+  }
+
+  function renderSessions(docs) {
+    sessionsEl.innerHTML = docs.length ? docs.map(d => {
+      const s = d.data() || {};
+      const date = s.date || d.id;
+      const day = date ? date.slice(8, 10) : '--';
+      const month = date ? COACH_MONTH_ABBR[parseInt(date.slice(5, 7), 10) - 1] : '';
+      const isToday = date === todayStr ? ' is-today' : '';
+      const icon = SESSION_TYPE_ICON[s.type] || '📝';
+      const typeLabel = SESSION_TYPE_LABEL[s.type] || s.type || '';
+      let sub = typeLabel;
+      if (s.duration_min) sub += ` · ${s.duration_min} min`;
+      const notes = s.notes ? `<div class="s">${esc(s.notes)}</div>` : '';
+      return `
+      <div class="plan-row${isToday}">
+        <div class="plan-date"><div class="d num">${day}</div><div class="m">${month}</div></div>
+        <div class="plan-main">
+          <div class="t">${icon} ${esc(s.title) || typeLabel}</div>
+          <div class="s">${sub}</div>
+          ${notes}
+        </div>
+      </div>`;
+    }).join('') : '<div class="track-note">Tu entrenador aún no ha programado sesiones.</div>';
+  }
+
+  (async function init() {
+    if (!window.claude) return;
+    let db = null;
+    try { db = await window.claude.use('db'); } catch (e) {}
+    if (!db) return;
+
+    db.collection('coach_notes').orderBy('created_at', 'desc').limit(6).onSnapshot(
+      (snap) => renderNotes(snap.docs),
+      (err) => console.error('coach_notes onSnapshot error', err)
+    );
+
+    const horizon = new Date(new Date(todayStr + 'T00:00:00Z').getTime() - 2 * 86400000).toISOString().slice(0, 10);
+    db.collection('coach_sessions').where('date', '>=', horizon).orderBy('date', 'asc').limit(21).onSnapshot(
+      (snap) => renderSessions(snap.docs),
+      (err) => console.error('coach_sessions onSnapshot error', err)
+    );
+  })();
+})();
+
 }
 
 (function bootstrap() {

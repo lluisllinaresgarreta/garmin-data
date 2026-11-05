@@ -68,7 +68,12 @@ por `data.json` ni por ninguna rutina) dos colecciones:
 - `coach_notes/<id>`: `{ text, created_at }` -- notas libres, se muestran las
   6 mas recientes.
 - `coach_sessions/<date>`: `{ date, type: run|strength|bike|rest|other, title,
-  duration_min, notes }` -- una sesion programada por dia.
+  duration_min, notes }` -- una sesion programada por dia. La de HOY tambien
+  alimenta directamente la tarjeta "Hoy" (bloque "Sesion de hoy" y el aviso de
+  Training Readiness) -- ya no existe el antiguo planificador automatico que
+  proponia sesiones por disponibilidad; ahora la unica fuente de "que toca
+  hoy" es lo que haya en `coach_sessions` para la fecha de hoy (o nada, si no
+  se ha programado).
 
 Para dejar algo ahi (desde cualquier conversacion de Claude Code), usar la
 herramienta `ArtifactData` con `url` = la URL del artifact de arriba,

@@ -58,6 +58,25 @@ de Hevy en una única actividad. A partir de ahí, el pipeline normal
 (`fetch_garmin_data.py` → `build_combined.py`) los recoge igual que cualquier
 otra actividad de fuerza, sin cambios.
 
+## Entrenador (notas y plan desde el chat de Claude)
+
+Lluis ya no sigue el plan de Garmin Coach; su entrenador es el chat de Claude.
+El dashboard tiene dos tarjetas -- "Mensaje de tu entrenador" y "Plan de tu
+entrenador" -- que leen en vivo (via la capacidad `db` del artifact, sin pasar
+por `data.json` ni por ninguna rutina) dos colecciones:
+
+- `coach_notes/<id>`: `{ text, created_at }` -- notas libres, se muestran las
+  6 mas recientes.
+- `coach_sessions/<date>`: `{ date, type: run|strength|bike|rest|other, title,
+  duration_min, notes }` -- una sesion programada por dia.
+
+Para dejar algo ahi (desde cualquier conversacion de Claude Code), usar la
+herramienta `ArtifactData` con `url` = la URL del artifact de arriba,
+`action: "set"` y el `collection`/`doc_id`/`data` correspondientes. No hace
+falta tocar el repo ni publicar nada con la herramienta Artifact -- el
+dashboard ya publicado se actualiza solo en cuanto se escribe en la base de
+datos.
+
 ## Rutinas en la nube
 
 Este repo lo usan varias rutinas programadas de Claude Code para mantener el

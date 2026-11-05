@@ -12,7 +12,10 @@ que Hevy no tiene.
 Una sola pagina de la API de Hevy (ordenada por mas reciente primero) cubre
 semanas de historial dado que Lluis entrena fuerza ~3x/semana, asi que esto
 es una unica llamada HTTP -- no hace falta sincronizacion incremental por
-fecha como con Garmin.
+fecha como con Garmin. pageSize=10 porque la API de Hevy devuelve 400 Bad
+Request con valores mayores (hevy2garmin, que ya sabemos que funciona contra
+esta misma API, usa 10 como default en todos sus endpoints paginados) --
+sigue cubriendo mas de 3 semanas de historial a ese ritmo.
 
 Uso:
     python fetch_hevy_exercises.py [page_size]
@@ -26,7 +29,7 @@ import requests
 
 DATA_DIR = Path(__file__).parent / "data"
 BASE_URL = os.environ.get("HEVY_API_KEY_URL", "https://api.hevyapp.com/v1")
-PAGE_SIZE = int(sys.argv[1]) if len(sys.argv) > 1 else 15
+PAGE_SIZE = int(sys.argv[1]) if len(sys.argv) > 1 else 10
 
 
 def main():

@@ -2125,8 +2125,12 @@ renderTodayCard(null); // render immediately with defaults so the page is never 
   const notesEl = document.getElementById('coachNotesList');
   const sessionsEl = document.getElementById('coachSessionsList');
   if (!notesEl || !sessionsEl) return;
+  const sessionsToggleEl = document.getElementById('coachSessionsToggle');
 
   const COACH_MONTH_ABBR = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
+  const SESSIONS_COLLAPSED_COUNT = 4;
+  let sessionsDocs = [];
+  let sessionsExpanded = false;
 
   function renderNotes(docs) {
     notesEl.innerHTML = docs.length ? docs.map(d => {
@@ -2136,28 +2140,53 @@ renderTodayCard(null); // render immediately with defaults so the page is never 
     }).join('') : '<div class="track-note">Tu entrenador aún no ha dejado ninguna nota.</div>';
   }
 
+  function sessionRowHtml(d) {
+    const s = d.data() || {};
+    const date = s.date || d.id;
+    const day = date ? date.slice(8, 10) : '--';
+    const month = date ? COACH_MONTH_ABBR[parseInt(date.slice(5, 7), 10) - 1] : '';
+    const isToday = date === todayStr ? ' is-today' : '';
+    const icon = SESSION_TYPE_ICON[s.type] || '📝';
+    const typeLabel = SESSION_TYPE_LABEL[s.type] || s.type || '';
+    let sub = typeLabel;
+    if (s.duration_min) sub += ` · ${s.duration_min} min`;
+    const notes = s.notes ? `<div class="s">${esc(s.notes)}</div>` : '';
+    return `
+    <div class="plan-row${isToday}">
+      <div class="plan-date"><div class="d num">${day}</div><div class="m">${month}</div></div>
+      <div class="plan-main">
+        <div class="t">${icon} ${esc(s.title) || typeLabel}</div>
+        <div class="s">${sub}</div>
+        ${notes}
+      </div>
+    </div>`;
+  }
+
+  function renderSessionsList() {
+    const visible = sessionsExpanded ? sessionsDocs : sessionsDocs.slice(0, SESSIONS_COLLAPSED_COUNT);
+    sessionsEl.innerHTML = visible.length
+      ? visible.map(sessionRowHtml).join('')
+      : '<div class="track-note">Tu entrenador aún no ha programado sesiones.</div>';
+    if (!sessionsToggleEl) return;
+    const remaining = sessionsDocs.length - SESSIONS_COLLAPSED_COUNT;
+    if (remaining > 0) {
+      sessionsToggleEl.style.display = '';
+      sessionsToggleEl.textContent = sessionsExpanded ? 'Ver menos' : `Ver más (${remaining})`;
+    } else {
+      sessionsToggleEl.style.display = 'none';
+    }
+  }
+
   function renderSessions(docs) {
-    sessionsEl.innerHTML = docs.length ? docs.map(d => {
-      const s = d.data() || {};
-      const date = s.date || d.id;
-      const day = date ? date.slice(8, 10) : '--';
-      const month = date ? COACH_MONTH_ABBR[parseInt(date.slice(5, 7), 10) - 1] : '';
-      const isToday = date === todayStr ? ' is-today' : '';
-      const icon = SESSION_TYPE_ICON[s.type] || '📝';
-      const typeLabel = SESSION_TYPE_LABEL[s.type] || s.type || '';
-      let sub = typeLabel;
-      if (s.duration_min) sub += ` · ${s.duration_min} min`;
-      const notes = s.notes ? `<div class="s">${esc(s.notes)}</div>` : '';
-      return `
-      <div class="plan-row${isToday}">
-        <div class="plan-date"><div class="d num">${day}</div><div class="m">${month}</div></div>
-        <div class="plan-main">
-          <div class="t">${icon} ${esc(s.title) || typeLabel}</div>
-          <div class="s">${sub}</div>
-          ${notes}
-        </div>
-      </div>`;
-    }).join('') : '<div class="track-note">Tu entrenador aún no ha programado sesiones.</div>';
+    sessionsDocs = docs;
+    renderSessionsList();
+  }
+
+  if (sessionsToggleEl) {
+    sessionsToggleEl.addEventListener('click', () => {
+      sessionsExpanded = !sessionsExpanded;
+      renderSessionsList();
+    });
   }
 
   (async function init() {

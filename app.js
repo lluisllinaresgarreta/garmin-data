@@ -332,15 +332,7 @@ document.getElementById('prList').innerHTML = `
   </div>
   <div class="track-note">Marcas cortas por ahora — el reloj lleva poco más de una semana registrando. Se irán superando a medida que avances en el plan.</div>`;
 
-// ---------- Calendario de Coach ----------
-const MONTH_ABBR = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
-const PLAN_BADGE = { done: 'Hecho', upcoming: 'Próximo', missed: 'Perdido' };
-const SPORT_ICON = { running: '🏃', cycling: '🚴', strength_training: '🏋️' };
-
-document.getElementById('planSub').textContent = coachPlan.length
-  ? 'Entrenos planificados por Garmin Coach y si los has completado'
-  : 'Garmin Coach aún no tiene entrenos programados en tu calendario';
-
+// ---------- Helpers de pasos de entreno (usados por el planificador semanal) ----------
 function fmtStepDuration(step) {
   if (step.end_condition === 'time' && step.end_value) {
     const sec = step.end_value;
@@ -377,37 +369,6 @@ function planStepsHtml(detail, compact) {
   const chips = detail.steps.map(stepNodeHtml).join('');
   return `<div class="plan-steps${compact ? ' compact' : ''}">${chips}</div>`;
 }
-
-document.getElementById('planList').innerHTML = coachPlan.length ? coachPlan.map(w => {
-  const day = w.date ? w.date.slice(8, 10) : '--';
-  const month = w.date ? MONTH_ABBR[parseInt(w.date.slice(5, 7), 10) - 1] : '';
-  const icon = SPORT_ICON[w.sport] || '🏃';
-  const detail = w.detail;
-  let sub = w.sport === 'running' ? 'Carrera · Coach' : (w.sport || 'Coach');
-  if (detail && detail.description) sub = detail.description;
-  if (detail && detail.estimated_duration_sec) sub += ` · ${Math.round(detail.estimated_duration_sec / 60)} min`;
-  if (detail && detail.estimated_distance_m) sub += ` · ${(detail.estimated_distance_m / 1000).toFixed(1)} km`;
-  const hasSteps = detail && detail.steps && detail.steps.length;
-  if (w.status === 'done' && w.avg_hr) {
-    sub = `${fmt(w.distance_km, 1)} km · ${fmt(w.duration_min, 0)} min · ${fmt(w.avg_hr, 0)} ppm`;
-  } else if (w.status === 'done') {
-    sub = w.activity_name || sub;
-  } else if (!hasSteps) {
-    sub = 'Pendiente de concretar por Coach';
-  }
-  const isToday = w.date === todayStr ? ' is-today' : '';
-  const steps = (w.status !== 'done' && hasSteps) ? planStepsHtml(detail) : '';
-  return `
-  <div class="plan-row${isToday}">
-    <div class="plan-date"><div class="d num">${day}</div><div class="m">${month}</div></div>
-    <div class="plan-main">
-      <div class="t">${icon} ${w.title || 'Entreno'}</div>
-      <div class="s">${sub}</div>
-    </div>
-    <span class="plan-badge ${w.status}">${PLAN_BADGE[w.status] || w.status}</span>
-    ${steps}
-  </div>`;
-}).join('') : '<div class="track-note">Cuando Coach te programe entrenos aparecerán aquí.</div>';
 
 // ---------- Fuerza — apoyo, no competencia ----------
 const typeCounts = {};
@@ -1899,15 +1860,14 @@ const weekKm = weekRuns.reduce((s,a)=>s+Number(a.distance_km||0),0);
 const weekMin = weekRuns.reduce((s,a)=>s+Number(a.duration_min||0),0);
 const weekLongest = weekRuns.reduce((max,a)=> Number(a.distance_km||0) > max ? Number(a.distance_km) : max, 0);
 const weekEnd = new Date(new Date(weekStart+'T00:00:00Z').getTime() + 6*86400000).toISOString().slice(0,10);
-const weekPlanned = coachPlan.filter(w => w.date >= weekStart && w.date <= weekEnd);
-const weekDone = weekPlanned.filter(w => w.status === 'done');
+const weekActiveDays = new Set([...weekRuns, ...weekStrength].map(a => a.date)).size;
 
 document.getElementById('weekSub').textContent = `Semana actual (desde el lunes ${fmtDateShort(weekStart)})`;
 document.getElementById('weekGrid').innerHTML = `
   <div class="week-item"><div class="l">Carrera</div><div class="v num">${fmt(weekKm,1)} km</div><div class="f">${fmt(weekMin,0)} min · ${weekRuns.length} sesiones</div></div>
   <div class="week-item"><div class="l">Más larga</div><div class="v num">${fmt(weekLongest,1)} km</div><div class="f">esta semana</div></div>
   <div class="week-item"><div class="l">Fuerza</div><div class="v num">${weekStrength.length}</div><div class="f">sesiones</div></div>
-  <div class="week-item"><div class="l">Plan de Coach</div><div class="v num">${weekDone.length}/${weekPlanned.length || 0}</div><div class="f">${weekPlanned.length ? 'completados' : 'sin entrenos aún'}</div></div>
+  <div class="week-item"><div class="l">Días activos</div><div class="v num">${weekActiveDays}</div><div class="f">de 7</div></div>
 `;
 
 // ---------- Series por grupo muscular — esta semana ----------

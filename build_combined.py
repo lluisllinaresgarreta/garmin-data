@@ -5,6 +5,7 @@ Uso:
     python build_combined.py
 """
 import json
+import re
 from datetime import date, datetime
 from pathlib import Path
 
@@ -161,8 +162,10 @@ def _name_muscle_rules(key):
         return [("Pecho", 1.0), ("Tríceps", 0.5), ("Hombros", 0.5)]
     if has("FLYE", "CHEST_FLY", "FLY"):
         return [("Pecho", 1.0)]
-    if has("TRICEPS", "PRESSDOWN"):
+    if has("TRICEP", "PRESSDOWN", "PUSHDOWN"):
         return [("Tríceps", 1.0)]
+    if has("OVERHEAD_PRESS", "MILITARY_PRESS", "ARNOLD_PRESS"):
+        return [("Hombros", 1.0), ("Tríceps", 0.5)]
     if has("BICEPS_CURL", "HAMMER_CURL", "CURL"):
         return [("Bíceps", 1.0)]
     if has("SQUAT"):
@@ -347,6 +350,117 @@ def parse_strength_session(session):
     }
 
 
+# ---- Ejercicios exactos desde Hevy (en vez de los mapeados por hevy2garmin al
+# catalogo limitado de Garmin) ----
+HEVY_MATCH_TOLERANCE_MIN = 120
+
+
+def _muscle_key(title):
+    """classify_muscles() substring-matches against Garmin-style SNAKE_CASE
+    tokens (BENCH_PRESS, LEG_EXTENSION...); Hevy's titles are plain English
+    with spaces/parens ("Incline Bench Press (Dumbbell)") so without this
+    normalization every Hevy-sourced exercise would silently fail to match
+    any muscle-group rule."""
+    return re.sub(r"[^A-Z0-9]+", "_", (title or "").upper()).strip("_")
+
+
+def _parse_hevy_timestamp(ts):
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(str(ts).replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return None
+
+
+def match_hevy_workout(start_time_gmt, hevy_workouts, used_ids):
+    """Finds the Hevy workout for the same real-world session as a Garmin
+    activity, by start-time proximity (both devices record the same gym
+    session independently, so their start times are close but rarely
+    identical) -- there's no shared id to join on otherwise. Matches in UTC
+    (Garmin's start_time_gmt vs. Hevy's own UTC timestamps) to avoid any
+    local-timezone guessing."""
+    if not start_time_gmt:
+        return None
+    try:
+        garmin_dt = datetime.strptime(start_time_gmt, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+    best, best_diff = None, None
+    for w in hevy_workouts:
+        wid = w.get("id")
+        if wid in used_ids:
+            continue
+        w_dt = _parse_hevy_timestamp(w.get("start_time"))
+        if w_dt is None:
+            continue
+        diff = abs((garmin_dt - w_dt).total_seconds()) / 60
+        if diff <= HEVY_MATCH_TOLERANCE_MIN and (best_diff is None or diff < best_diff):
+            best, best_diff = w, diff
+    return best
+
+
+def parse_hevy_session(workout):
+    """Same output shape as parse_strength_session(), but built from Hevy's
+    own exercises/sets -- the exact titles/weights/reps logged in the gym,
+    not hevy2garmin's necessarily-approximate mapping onto Garmin's limited
+    FIT SDK exercise catalog (that mapping only exists so the activity can be
+    uploaded to Garmin Connect at all; the dashboard has no such constraint)."""
+    exercises = []
+    group_sets = {}
+    effective_sets_total = 0
+    volume_kg_total = 0.0
+    for ex in (workout or {}).get("exercises") or []:
+        title = ex.get("title") or "Ejercicio"
+        sets = [s for s in (ex.get("sets") or []) if s.get("type") != "warmup"]
+        weights = [s["weight_kg"] for s in sets if s.get("weight_kg") is not None]
+        max_weight = max(weights, default=None)
+        out_sets = []
+        effective_count = 0
+        best_set, best_1rm = None, -1
+        for s in sets:
+            weight_kg, reps = s.get("weight_kg"), s.get("reps")
+            warmup = max_weight is not None and weight_kg is not None and weight_kg < WARMUP_THRESHOLD * max_weight
+            effective = weight_kg is not None and not warmup
+            out_sets.append({"reps": reps, "weight_kg": weight_kg, "warmup": warmup})
+            if effective:
+                effective_count += 1
+                volume_kg_total += (reps or 0) * weight_kg
+                rm = epley_1rm(weight_kg, reps)
+                if rm is not None and rm > best_1rm:
+                    best_1rm, best_set = rm, {"reps": reps, "weight_kg": weight_kg}
+        exercises.append({
+            "name": title,
+            "category": None,
+            "display_name": title,
+            "sets": out_sets,
+            "weight_min": min(weights) if weights else None,
+            "weight_max": max(weights) if weights else None,
+            "best_set": best_set,
+            "one_rm_est": round(best_1rm, 1) if best_set else None,
+        })
+        effective_sets_total += effective_count
+        if effective_count:
+            # Pass the normalized title as BOTH args: classify_muscles() only
+            # falls back from the name-based rules to the category-based ones
+            # when `category` is truthy, and Hevy exercises have no Garmin
+            # category -- without this, every exercise that's only in
+            # _CATEGORY_MUSCLE_RULES (not _name_muscle_rules) would silently
+            # get zero muscle-group credit.
+            muscle_key = _muscle_key(title)
+            for group, w in classify_muscles(muscle_key, muscle_key):
+                group_sets[group] = group_sets.get(group, 0) + effective_count * w
+
+    muscle_group_sets = {g: round(v, 1) for g, v in group_sets.items() if v > 0}
+    return {
+        "exercises": exercises,
+        "muscle_group_sets": muscle_group_sets,
+        "session_type": classify_session_type(workout.get("title"), muscle_group_sets),
+        "effective_sets_total": effective_sets_total,
+        "volume_kg_total": round(volume_kg_total, 1),
+    }
+
+
 def te_label(value):
     if value is None or value == "":
         return None
@@ -407,6 +521,8 @@ def main():
     weather_raw = load_json("activity_weather.json", {})
     series_raw = load_json("activity_series.json", {})
     sets_raw = load_json("exercise_sets.json", {})
+    hevy_workouts = load_json("hevy_workouts.json", [])
+    used_hevy_ids = set()
     glucose_raw = load_json("glucose.json", {"available": False, "reason": "not_fetched"})
     glucose_by_activity = glucose_raw.get("activities", {}) if glucose_raw.get("available") else {}
     for r in act_records:
@@ -456,6 +572,22 @@ def main():
             r["session_type"] = parsed["session_type"]
             r["effective_sets_total"] = parsed["effective_sets_total"]
             r["volume_kg_total"] = parsed["volume_kg_total"]
+
+            # Prefer Hevy's own exercise names/sets over Garmin's version (which
+            # went through hevy2garmin's necessarily-lossy mapping onto Garmin's
+            # limited exercise catalog just to make the upload possible) --
+            # keeping the watch's HR/duration/calories from the Garmin side,
+            # which Hevy doesn't have.
+            hevy_match = match_hevy_workout(r.get("start_time_gmt"), hevy_workouts, used_hevy_ids)
+            if hevy_match:
+                hevy_parsed = parse_hevy_session(hevy_match)
+                if hevy_parsed["exercises"]:
+                    used_hevy_ids.add(hevy_match.get("id"))
+                    r["exercises"] = hevy_parsed["exercises"]
+                    r["muscle_group_sets"] = hevy_parsed["muscle_group_sets"]
+                    r["session_type"] = hevy_parsed["session_type"]
+                    r["effective_sets_total"] = hevy_parsed["effective_sets_total"]
+                    r["volume_kg_total"] = hevy_parsed["volume_kg_total"]
 
     # Personal-record flag per exercise: a record is a heavier best set, or the
     # same weight for more reps — not a higher Epley-estimated 1RM, which a

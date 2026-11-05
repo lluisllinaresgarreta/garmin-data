@@ -7,9 +7,10 @@ publicado el dashboard "Panel Forerunner 265" (Claude Artifact).
 
 ```
 pip install -r requirements.txt
-cp .env.example .env   # rellena GARMIN_EMAIL, GARMIN_PASSWORD, LIBRE_EMAIL, LIBRE_PASSWORD
+cp .env.example .env   # rellena GARMIN_EMAIL, GARMIN_PASSWORD, LIBRE_EMAIL, LIBRE_PASSWORD, HEVY_API_KEY
 python fetch_garmin_data.py --days 90
 python fetch_libre_data.py
+python fetch_hevy_exercises.py
 python build_combined.py
 python render_dashboard.py
 ```
@@ -58,6 +59,20 @@ de Hevy en una única actividad. A partir de ahí, el pipeline normal
 (`fetch_garmin_data.py` → `build_combined.py`) los recoge igual que cualquier
 otra actividad de fuerza, sin cambios.
 
+**Ejercicios exactos, no los mapeados a Garmin**: hevy2garmin necesita mapear
+cada ejercicio de Hevy al catálogo limitado de Garmin para poder subirlo (p.ej.
+"Incline Bench Press (Dumbbell)" → `INCLINE_DUMBBELL_BENCH_PRESS`), así que lo
+que queda en Garmin Connect no siempre es el nombre exacto. Para que el
+dashboard sí muestre el nombre exacto, `fetch_hevy_exercises.py` descarga los
+entrenos recientes directamente de la API de Hevy (`HEVY_API_KEY`, la misma
+clave que usa hevy2garmin) a `data/hevy_workouts.json` -- una sola llamada,
+cubre semanas de historial. `build_combined.py` cruza cada actividad de fuerza
+de Garmin con su entreno de Hevy por hora de inicio (±2h) y, si encuentra uno,
+usa los ejercicios/series/reps/peso de Hevy tal cual en vez de los mapeados,
+conservando la FC/duración/calorías del reloj (que Hevy no tiene). Si
+`HEVY_API_KEY` no está configurada, o un entreno no tiene match, se queda con
+los ejercicios de Garmin como hasta ahora -- nunca bloqueante.
+
 **Limitación conocida con Strava**: la sincronización Garmin→Strava solo
 empuja la actividad en el momento en que se crea (vacía, antes de que
 hevy2garmin la fusione) — Strava nunca recoge la edición posterior, así que la
@@ -97,7 +112,8 @@ Este repo lo usan varias rutinas programadas de Claude Code para mantener el
 dashboard actualizado sin depender de ningún PC local:
 
 - **Garmin dashboard refresh** (2x/día + manual): sincronización completa
-  (Garmin + Libre, ventana adaptativa) y publica solo `data.json`.
+  (Garmin + Libre + ejercicios exactos de Hevy, ventana adaptativa) y publica
+  solo `data.json`.
 - **Glucosa - sincronizar ahora** (manual): solo glucosa, rápido.
 - **Garmin: reintento sueño/HRV matutino** (horaria 7-11h): reintenta el sueño/VFC
   de hoy si Garmin aún no lo había subido cuando corrió la sincronización

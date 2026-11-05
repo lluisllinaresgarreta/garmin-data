@@ -11,6 +11,33 @@ from pathlib import Path
 
 import pandas as pd
 
+try:
+    # Hevy's exercise_template_id -> Garmin FIT (category, subcategory) is the
+    # SAME regardless of the user's Hevy app language (hevy2garmin's own fix
+    # for issue #173) -- Hevy's `title` field isn't: it comes back localized
+    # (e.g. "Press de Banca Inclinado" for a Spanish account), so keyword
+    # matching against it for muscle-group classification silently matches
+    # nothing. Reuse hevy2garmin's own language-independent table instead of
+    # re-deriving/maintaining one, since it's already a declared dependency.
+    from hevy2garmin.template_map import TEMPLATE_TO_GARMIN
+except ImportError:
+    TEMPLATE_TO_GARMIN = {}
+
+# FIT SDK exercise_category enum (fixed by the spec, hevy2garmin/mapper.py's
+# own docstring lists the same numbering) -- lets a Hevy exercise's
+# category id resolve to the same name-keyed rules classify_muscles() already
+# uses for Garmin-sourced exercises.
+FIT_CATEGORY_NAME = {
+    0: "BENCH_PRESS", 1: "CALF_RAISE", 2: "CARDIO", 3: "CARRY", 4: "CHOP",
+    5: "CORE", 6: "CRUNCH", 7: "CURL", 8: "DEADLIFT", 9: "FLYE",
+    10: "HIP_RAISE", 11: "HIP_STABILITY", 12: "HIP_SWING", 13: "HYPEREXTENSION",
+    14: "LATERAL_RAISE", 15: "LEG_CURL", 16: "LEG_RAISE", 17: "LUNGE",
+    18: "OLYMPIC_LIFT", 19: "PLANK", 20: "PLYO", 21: "PULL_UP", 22: "PUSH_UP",
+    23: "ROW", 24: "SHOULDER_PRESS", 25: "SHOULDER_STABILITY", 26: "SHRUG",
+    27: "SIT_UP", 28: "SQUAT", 29: "TOTAL_BODY", 30: "TRICEPS_EXTENSION",
+    31: "WARM_UP", 32: "RUN", 65534: "UNKNOWN",
+}
+
 DATA_DIR = Path(__file__).parent / "data"
 
 # Keep data.json light: time-series detail (minute-by-minute chart samples, GPS
@@ -441,14 +468,19 @@ def parse_hevy_session(workout):
         })
         effective_sets_total += effective_count
         if effective_count:
-            # Pass the normalized title as BOTH args: classify_muscles() only
-            # falls back from the name-based rules to the category-based ones
-            # when `category` is truthy, and Hevy exercises have no Garmin
-            # category -- without this, every exercise that's only in
-            # _CATEGORY_MUSCLE_RULES (not _name_muscle_rules) would silently
-            # get zero muscle-group credit.
-            muscle_key = _muscle_key(title)
-            for group, w in classify_muscles(muscle_key, muscle_key):
+            # Resolve muscle groups via exercise_template_id first (language-
+            # independent -- works whether Hevy's `title` comes back in
+            # Spanish, English or anything else) and fall back to matching the
+            # raw title only for exercises with no template id or one outside
+            # TEMPLATE_TO_GARMIN (a fully custom user-created exercise).
+            fit_pair = TEMPLATE_TO_GARMIN.get(ex.get("exercise_template_id"))
+            cat_name = FIT_CATEGORY_NAME.get(fit_pair[0]) if fit_pair else None
+            if cat_name:
+                rules = classify_muscles(cat_name, cat_name)
+            else:
+                muscle_key = _muscle_key(title)
+                rules = classify_muscles(muscle_key, muscle_key)
+            for group, w in rules:
                 group_sets[group] = group_sets.get(group, 0) + effective_count * w
 
     muscle_group_sets = {g: round(v, 1) for g, v in group_sets.items() if v > 0}

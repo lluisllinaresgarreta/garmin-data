@@ -458,26 +458,43 @@
     .exercise-table .exercise-sets-wrap > td { display: block; padding: 0; }
   }
 
-  /* Notas y plan del entrenador (Claude) */
-  .coach-notes { display: flex; flex-direction: column; gap: 8px; }
+  /* Notas del entrenador (Claude) -- fila horizontal con scroll, no apilada */
+  .coach-notes {
+    display: flex; flex-direction: row; gap: 8px; overflow-x: auto; padding-bottom: 4px;
+    scrollbar-width: thin;
+  }
   .coach-note {
-    padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-card);
+    flex: 0 0 auto; width: 240px; padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: 10px; background: var(--surface-card);
   }
   .coach-note .cn-date { font-size: 10.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 3px; }
   .coach-note .cn-text { font-size: 13px; line-height: 1.45; white-space: pre-wrap; }
 
-  .plan-list { display: flex; flex-direction: column; gap: 8px; }
-  .plan-row {
-    display: flex; align-items: center; gap: 12px; padding: 10px 12px; flex-wrap: wrap;
+  /* Calendario semanal del entrenador -- lunes a domingo, 7 celdas en fila con
+     scroll horizontal en móvil en vez de apretarlas en columnas estrechas. */
+  .coach-week { display: flex; flex-direction: row; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+  .coach-day {
+    flex: 0 0 108px; display: flex; flex-direction: column; gap: 6px; padding: 10px;
     border: 1px solid var(--border); border-radius: 10px; background: var(--surface-card);
+    text-align: center;
   }
-  .plan-date { flex: none; width: 42px; text-align: center; }
-  .plan-date .d { font-size: 15px; font-weight: 700; font-family: "Bricolage Grotesque", system-ui, sans-serif; line-height: 1.1; }
-  .plan-date .m { font-size: 9.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
-  .plan-main { flex: 1; min-width: 0; }
-  .plan-main .t { font-size: 13.5px; font-weight: 600; }
-  .plan-main .s { font-size: 11.5px; color: var(--text-muted); margin-top: 1px; }
-  .plan-row.is-today { background: var(--surface-sunken); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+  .coach-day.is-today { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+  .coach-day .cd-dow { font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.03em; }
+  .coach-day .cd-dow .cd-num { font-weight: 500; color: var(--text-muted); margin-left: 3px; }
+  .coach-day .cd-body { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 2px; min-height: 48px; }
+  .coach-day .cd-icon { font-size: 17px; }
+  .coach-day .cd-title { font-size: 11px; font-weight: 600; line-height: 1.25; }
+  .coach-day .cd-dur { font-size: 10px; color: var(--text-muted); }
+  .coach-day .cd-empty { font-size: 13px; color: var(--text-muted); }
+  .coach-day .cd-state {
+    font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+    padding: 2px 6px; border-radius: 999px; background: var(--surface-sunken); color: var(--text-muted);
+  }
+  .coach-day.done { border-color: color-mix(in srgb, var(--good) 40%, transparent); background: color-mix(in srgb, var(--good) 8%, var(--surface-card)); }
+  .coach-day.done .cd-state { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
+  .coach-day.missed { border-color: color-mix(in srgb, var(--critical) 40%, transparent); background: color-mix(in srgb, var(--critical) 8%, var(--surface-card)); }
+  .coach-day.missed .cd-state { background: color-mix(in srgb, var(--critical) 18%, transparent); color: var(--critical); }
+  .coach-day.pending .cd-state { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
 
   /* Per-activity real HR time-in-zone bar */
   .act-zonebar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; margin-top: 10px; gap: 1px; }

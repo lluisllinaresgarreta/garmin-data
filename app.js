@@ -2178,7 +2178,13 @@ renderTodayCard(null); // render immediately with defaults so the page is never 
   function dayCellHtml(date, dowIdx, showDow) {
     const s = sessionsByDate[date];
     const { cls, label } = dayState(date, s);
-    const isToday = date === todayStr ? ' is-today' : '';
+    const isTodayBool = date === todayStr;
+    const isToday = isTodayBool ? ' is-today' : '';
+    // The state label already says "Hoy" on its own for a pending (not yet
+    // due) today, but once today also has a done/missed/rest label that
+    // mention gets replaced -- prefix it back so today stays identifiable
+    // regardless of what else happened on it.
+    const stateLabel = isTodayBool && label !== 'Hoy' ? (label ? `Hoy · ${label}` : 'Hoy') : label;
     const icon = s ? (SESSION_TYPE_ICON[s.type] || '📝') : '';
     const typeLabel = s ? (SESSION_TYPE_LABEL[s.type] || s.type || '') : '';
     const title = s ? esc(s.title) || typeLabel : '';
@@ -2189,7 +2195,7 @@ renderTodayCard(null); // render immediately with defaults so the page is never 
       <div class="cd-body">
         ${s ? `<div class="cd-icon">${icon}</div><div class="cd-title">${title}</div>${s.duration_min ? `<div class="cd-dur">${s.duration_min} min</div>` : ''}` : '<div class="cd-empty">—</div>'}
       </div>
-      ${label ? `<div class="cd-state">${label}</div>` : ''}
+      ${stateLabel ? `<div class="cd-state">${stateLabel}</div>` : ''}
     </div>`;
   }
 

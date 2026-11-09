@@ -480,9 +480,14 @@
     border: 1px solid var(--border); border-radius: 10px; background: var(--surface-card);
     text-align: center;
   }
-  .coach-day.is-today { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+  .coach-day.is-today {
+    border-color: var(--accent); border-width: 2px; padding: 9px;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+  .coach-day.is-today .cd-state { background: var(--accent); color: var(--surface-page); }
   .coach-day .cd-dow { font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.03em; }
   .coach-day .cd-dow .cd-num { font-weight: 500; color: var(--text-muted); margin-left: 3px; }
+  .coach-day.is-today .cd-dow .cd-num { font-weight: 800; color: var(--accent); font-size: 13px; }
   .coach-day .cd-body { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 2px; min-height: 48px; }
   .coach-day .cd-icon { font-size: 17px; }
   .coach-day .cd-title { font-size: 11px; font-weight: 600; line-height: 1.25; }

@@ -2170,16 +2170,22 @@ renderTodayCard(null); // render immediately with defaults so the page is never 
     return { cls: 'pending', label: isToday ? 'Hoy' : 'Próximo' };
   }
 
-  function weekCellHtml(date, dowIdx) {
+  // showDow: in the week strip each card names its own weekday (L/M/X...);
+  // in the month grid that's redundant with the header row above, so only
+  // the day number shows there -- same full detail (icon/título/duración/
+  // estado) either way, per Lluis: quiere ver el entreno completo, no solo
+  // un icono, también en la vista de mes.
+  function dayCellHtml(date, dowIdx, showDow) {
     const s = sessionsByDate[date];
     const { cls, label } = dayState(date, s);
     const isToday = date === todayStr ? ' is-today' : '';
     const icon = s ? (SESSION_TYPE_ICON[s.type] || '📝') : '';
     const typeLabel = s ? (SESSION_TYPE_LABEL[s.type] || s.type || '') : '';
     const title = s ? esc(s.title) || typeLabel : '';
+    const dowPrefix = showDow ? `${DOW_SHORT[dowIdx]} ` : '';
     return `
     <div class="coach-day ${cls}${isToday}">
-      <div class="cd-dow">${DOW_SHORT[dowIdx]} <span class="cd-num">${date.slice(8,10)}</span></div>
+      <div class="cd-dow">${dowPrefix}<span class="cd-num">${date.slice(8,10)}</span></div>
       <div class="cd-body">
         ${s ? `<div class="cd-icon">${icon}</div><div class="cd-title">${title}</div>${s.duration_min ? `<div class="cd-dur">${s.duration_min} min</div>` : ''}` : '<div class="cd-empty">—</div>'}
       </div>
@@ -2187,23 +2193,10 @@ renderTodayCard(null); // render immediately with defaults so the page is never 
     </div>`;
   }
 
-  function monthCellHtml(date) {
-    if (!date) return '<div class="coach-day-mini empty"></div>';
-    const s = sessionsByDate[date];
-    const { cls } = dayState(date, s);
-    const isToday = date === todayStr ? ' is-today' : '';
-    const icon = s ? (SESSION_TYPE_ICON[s.type] || '📝') : '';
-    return `
-    <div class="coach-day-mini ${cls}${isToday}" title="${esc((s && s.title) || '')}">
-      <div class="cdm-num">${date.slice(8,10)}</div>
-      ${s ? `<div class="cdm-icon">${icon}</div>` : ''}
-    </div>`;
-  }
-
   function renderCalendar() {
     if (!monthExpanded) {
       const cells = [];
-      for (let i = 0; i < 7; i++) cells.push(weekCellHtml(addDaysLocal(weekStart, i), i));
+      for (let i = 0; i < 7; i++) cells.push(dayCellHtml(addDaysLocal(weekStart, i), i, true));
       sessionsEl.className = 'coach-week';
       sessionsEl.innerHTML = cells.join('');
     } else {
@@ -2213,8 +2206,9 @@ renderTodayCard(null); // render immediately with defaults so the page is never 
       for (let d = monthStart; d <= monthEnd; d = addDaysLocal(d, 1)) dates.push(d);
       while (dates.length % 7 !== 0) dates.push(null);
       const header = DOW_SHORT.map(d => `<div class="cdm-head">${d}</div>`).join('');
-      sessionsEl.className = 'coach-month';
-      sessionsEl.innerHTML = header + dates.map(monthCellHtml).join('');
+      const cells = dates.map((date, idx) => date ? dayCellHtml(date, idx % 7, false) : '<div class="coach-day empty-pad"></div>');
+      sessionsEl.className = 'coach-month-full';
+      sessionsEl.innerHTML = header + cells.join('');
     }
     if (monthToggleEl) {
       monthToggleEl.textContent = monthExpanded

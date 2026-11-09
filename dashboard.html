@@ -47,16 +47,17 @@
     </div>
   </section>
 
-  <section class="card">
-    <div class="section-title">Mensaje de tu entrenador</div>
-    <div class="section-sub">Notas que te deja Claude cuando le hablas de tu entreno</div>
-    <div class="coach-notes" id="coachNotesList"></div>
-  </section>
-
-  <section class="card">
+  <section class="card coach-card">
     <div class="section-title">Plan de tu entrenador</div>
     <div class="section-sub">Esta semana (lunes a domingo) — en verde lo que ya has cumplido, en rojo lo que no</div>
     <div class="coach-week" id="coachSessionsList"></div>
+    <button type="button" class="act-load-more" id="coachMonthToggle"></button>
+  </section>
+
+  <section class="card coach-card">
+    <div class="section-title">Mensaje de tu entrenador</div>
+    <div class="section-sub">Notas que te deja Claude cuando le hablas de tu entreno</div>
+    <div class="coach-notes" id="coachNotesList"></div>
   </section>
 
   <section class="tiles" id="tiles"></section>

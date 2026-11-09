@@ -95,7 +95,8 @@
     .wrap > section.tiles,
     .wrap > footer.note { column-span: all; }
     .wrap > section.card { display: inline-block; width: 100%; break-inside: avoid; margin-bottom: 24px; }
-    .wrap > section.today-card { column-span: all; display: block; }
+    .wrap > section.today-card,
+    .wrap > section.coach-card { column-span: all; display: block; }
     .wrap > header.top { margin-bottom: 28px; }
     .wrap > section.tiles { margin-bottom: 28px; }
   }
@@ -470,11 +471,12 @@
   .coach-note .cn-date { font-size: 10.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 3px; }
   .coach-note .cn-text { font-size: 13px; line-height: 1.45; white-space: pre-wrap; }
 
-  /* Calendario semanal del entrenador -- lunes a domingo, 7 celdas en fila con
-     scroll horizontal en móvil en vez de apretarlas en columnas estrechas. */
+  /* Calendario semanal del entrenador -- lunes a domingo, 7 celdas que se
+     reparten el ancho completo de la tarjeta (coach-card la estira a todo lo
+     ancho); min-width conserva el scroll horizontal solo si no caben. */
   .coach-week { display: flex; flex-direction: row; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
   .coach-day {
-    flex: 0 0 108px; display: flex; flex-direction: column; gap: 6px; padding: 10px;
+    flex: 1 1 0; min-width: 108px; display: flex; flex-direction: column; gap: 6px; padding: 10px;
     border: 1px solid var(--border); border-radius: 10px; background: var(--surface-card);
     text-align: center;
   }
@@ -495,6 +497,22 @@
   .coach-day.missed { border-color: color-mix(in srgb, var(--critical) 40%, transparent); background: color-mix(in srgb, var(--critical) 8%, var(--surface-card)); }
   .coach-day.missed .cd-state { background: color-mix(in srgb, var(--critical) 18%, transparent); color: var(--critical); }
   .coach-day.pending .cd-state { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+
+  /* Calendario mensual del entrenador (desplegado) -- grid de 7 columnas,
+     celdas compactas (solo número + icono, sin título) ya que hay que caber
+     hasta ~5 semanas; el detalle completo sigue en la vista semanal. */
+  .coach-month { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+  .cdm-head { font-size: 10px; font-weight: 700; color: var(--text-muted); text-align: center; text-transform: uppercase; padding-bottom: 2px; }
+  .coach-day-mini {
+    aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    border: 1px solid var(--border); border-radius: 8px; background: var(--surface-card);
+  }
+  .coach-day-mini.empty { visibility: hidden; }
+  .coach-day-mini.is-today { border-color: color-mix(in srgb, var(--accent) 55%, transparent); border-width: 2px; }
+  .coach-day-mini .cdm-num { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .coach-day-mini .cdm-icon { font-size: 11px; line-height: 1; }
+  .coach-day-mini.done { border-color: color-mix(in srgb, var(--good) 45%, transparent); background: color-mix(in srgb, var(--good) 12%, var(--surface-card)); }
+  .coach-day-mini.missed { border-color: color-mix(in srgb, var(--critical) 45%, transparent); background: color-mix(in srgb, var(--critical) 12%, var(--surface-card)); }
 
   /* Per-activity real HR time-in-zone bar */
   .act-zonebar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; margin-top: 10px; gap: 1px; }

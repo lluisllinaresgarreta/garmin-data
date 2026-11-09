@@ -2125,8 +2125,10 @@ renderTodayCard(null); // render immediately with defaults so the page is never 
   const notesEl = document.getElementById('coachNotesList');
   const sessionsEl = document.getElementById('coachSessionsList');
   if (!notesEl || !sessionsEl) return;
+  const monthToggleEl = document.getElementById('coachMonthToggle');
 
   const DOW_SHORT = ['L','M','X','J','V','S','D'];
+  const MONTH_NAME = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
   const activityDates = new Set(DATA.activities.map(a => a.date));
 
   function addDaysLocal(dateStr, n) {
@@ -2134,7 +2136,16 @@ renderTodayCard(null); // render immediately with defaults so the page is never 
     d.setUTCDate(d.getUTCDate() + n);
     return d.toISOString().slice(0, 10);
   }
-  const weekEnd = addDaysLocal(weekStart, 6);
+  function isoDow(dateStr) { // 0=lunes .. 6=domingo
+    const d = new Date(dateStr + 'T00:00:00Z');
+    return (d.getUTCDay() + 6) % 7;
+  }
+  const todayDate = new Date(todayStr + 'T00:00:00Z');
+  const monthStart = new Date(Date.UTC(todayDate.getUTCFullYear(), todayDate.getUTCMonth(), 1)).toISOString().slice(0, 10);
+  const monthEnd = new Date(Date.UTC(todayDate.getUTCFullYear(), todayDate.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
+
+  let sessionsByDate = {};
+  let monthExpanded = false;
 
   function renderNotes(docs) {
     notesEl.innerHTML = docs.length ? docs.map(d => {
@@ -2144,46 +2155,85 @@ renderTodayCard(null); // render immediately with defaults so the page is never 
     }).join('') : '<div class="track-note">Tu entrenador aún no ha dejado ninguna nota.</div>';
   }
 
-  // Lunes a domingo de esta semana, en verde si ese día hay alguna actividad
-  // registrada y en rojo si ya pasó sin ninguna -- los días de descanso y los
-  // que aún no han llegado nunca se marcan en rojo, solo se juzgan los que ya
-  // tuvieron ocasión de cumplirse.
-  function renderSessions(docs) {
-    const byDate = {};
-    docs.forEach(d => { const s = d.data() || {}; byDate[s.date || d.id] = s; });
+  // Estado de un día: en verde si ese día (ya pasado) tiene alguna actividad
+  // registrada, en rojo si ya pasó y no la tiene -- descanso, hoy y días
+  // futuros nunca se marcan en rojo, solo se juzgan los que ya tuvieron
+  // ocasión de cumplirse.
+  function dayState(date, s) {
+    const isToday = date === todayStr;
+    const isPast = date < todayStr;
+    const done = activityDates.has(date);
+    if (!s) return { cls: 'empty', label: '' };
+    if (s.type === 'rest') return { cls: 'rest', label: done ? 'Entrenaste igual' : 'Descanso' };
+    if (done) return { cls: 'done', label: 'Hecho' };
+    if (isPast) return { cls: 'missed', label: 'No hecho' };
+    return { cls: 'pending', label: isToday ? 'Hoy' : 'Próximo' };
+  }
 
-    const cells = [];
-    for (let i = 0; i < 7; i++) {
-      const date = addDaysLocal(weekStart, i);
-      const s = byDate[date];
-      const isToday = date === todayStr;
-      const isPast = date < todayStr;
-      const done = activityDates.has(date);
-      let stateCls, stateLabel;
-      if (!s) {
-        stateCls = 'empty'; stateLabel = '';
-      } else if (s.type === 'rest') {
-        stateCls = 'rest'; stateLabel = done ? 'Entrenaste igual' : 'Descanso';
-      } else if (done) {
-        stateCls = 'done'; stateLabel = 'Hecho';
-      } else if (isPast) {
-        stateCls = 'missed'; stateLabel = 'No hecho';
-      } else {
-        stateCls = 'pending'; stateLabel = isToday ? 'Hoy' : 'Próximo';
-      }
-      const icon = s ? (SESSION_TYPE_ICON[s.type] || '📝') : '';
-      const typeLabel = s ? (SESSION_TYPE_LABEL[s.type] || s.type || '') : '';
-      const title = s ? esc(s.title) || typeLabel : '';
-      cells.push(`
-      <div class="coach-day ${stateCls}${isToday ? ' is-today' : ''}">
-        <div class="cd-dow">${DOW_SHORT[i]} <span class="cd-num">${date.slice(8,10)}</span></div>
-        <div class="cd-body">
-          ${s ? `<div class="cd-icon">${icon}</div><div class="cd-title">${title}</div>${s.duration_min ? `<div class="cd-dur">${s.duration_min} min</div>` : ''}` : '<div class="cd-empty">—</div>'}
-        </div>
-        ${stateLabel ? `<div class="cd-state">${stateLabel}</div>` : ''}
-      </div>`);
+  function weekCellHtml(date, dowIdx) {
+    const s = sessionsByDate[date];
+    const { cls, label } = dayState(date, s);
+    const isToday = date === todayStr ? ' is-today' : '';
+    const icon = s ? (SESSION_TYPE_ICON[s.type] || '📝') : '';
+    const typeLabel = s ? (SESSION_TYPE_LABEL[s.type] || s.type || '') : '';
+    const title = s ? esc(s.title) || typeLabel : '';
+    return `
+    <div class="coach-day ${cls}${isToday}">
+      <div class="cd-dow">${DOW_SHORT[dowIdx]} <span class="cd-num">${date.slice(8,10)}</span></div>
+      <div class="cd-body">
+        ${s ? `<div class="cd-icon">${icon}</div><div class="cd-title">${title}</div>${s.duration_min ? `<div class="cd-dur">${s.duration_min} min</div>` : ''}` : '<div class="cd-empty">—</div>'}
+      </div>
+      ${label ? `<div class="cd-state">${label}</div>` : ''}
+    </div>`;
+  }
+
+  function monthCellHtml(date) {
+    if (!date) return '<div class="coach-day-mini empty"></div>';
+    const s = sessionsByDate[date];
+    const { cls } = dayState(date, s);
+    const isToday = date === todayStr ? ' is-today' : '';
+    const icon = s ? (SESSION_TYPE_ICON[s.type] || '📝') : '';
+    return `
+    <div class="coach-day-mini ${cls}${isToday}" title="${esc((s && s.title) || '')}">
+      <div class="cdm-num">${date.slice(8,10)}</div>
+      ${s ? `<div class="cdm-icon">${icon}</div>` : ''}
+    </div>`;
+  }
+
+  function renderCalendar() {
+    if (!monthExpanded) {
+      const cells = [];
+      for (let i = 0; i < 7; i++) cells.push(weekCellHtml(addDaysLocal(weekStart, i), i));
+      sessionsEl.className = 'coach-week';
+      sessionsEl.innerHTML = cells.join('');
+    } else {
+      const leadPad = isoDow(monthStart);
+      const dates = [];
+      for (let i = 0; i < leadPad; i++) dates.push(null);
+      for (let d = monthStart; d <= monthEnd; d = addDaysLocal(d, 1)) dates.push(d);
+      while (dates.length % 7 !== 0) dates.push(null);
+      const header = DOW_SHORT.map(d => `<div class="cdm-head">${d}</div>`).join('');
+      sessionsEl.className = 'coach-month';
+      sessionsEl.innerHTML = header + dates.map(monthCellHtml).join('');
     }
-    sessionsEl.innerHTML = cells.join('');
+    if (monthToggleEl) {
+      monthToggleEl.textContent = monthExpanded
+        ? 'Ver solo esta semana'
+        : `Ver mes completo (${MONTH_NAME[todayDate.getUTCMonth()]})`;
+    }
+  }
+
+  function renderSessions(docs) {
+    sessionsByDate = {};
+    docs.forEach(d => { const s = d.data() || {}; sessionsByDate[s.date || d.id] = s; });
+    renderCalendar();
+  }
+
+  if (monthToggleEl) {
+    monthToggleEl.addEventListener('click', () => {
+      monthExpanded = !monthExpanded;
+      renderCalendar();
+    });
   }
 
   (async function init() {
@@ -2197,7 +2247,10 @@ renderTodayCard(null); // render immediately with defaults so the page is never 
       (err) => console.error('coach_notes onSnapshot error', err)
     );
 
-    db.collection('coach_sessions').where('date', '>=', weekStart).where('date', '<=', weekEnd).orderBy('date', 'asc').limit(7).onSnapshot(
+    // Pide el mes natural completo de una vez (como mucho 31 documentos) en
+    // vez de re-consultar al desplegar el mes: la semana es solo un filtro
+    // en el mismo dato ya suscrito.
+    db.collection('coach_sessions').where('date', '>=', monthStart).where('date', '<=', monthEnd).orderBy('date', 'asc').limit(31).onSnapshot(
       (snap) => {
         renderSessions(snap.docs);
         const todayDoc = snap.docs.find(d => (d.data().date || d.id) === todayStr);

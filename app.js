@@ -2751,6 +2751,7 @@ renderTodayCard(null); // render immediately with defaults so the page is never 
   let loaded = false;
   let monthReadings = [];
   let diabetesDocs = [];
+  let downloadsCap = null;
 
   function monthKey() { return selectedMonth === 'current' ? CUR_MONTH_KEY : PREV_MONTH_KEY; }
 
@@ -2839,25 +2840,45 @@ renderTodayCard(null); // render immediately with defaults so the page is never 
     });
   }
 
+  // El visor de Artifacts de Claude bloquea window.print() incluso abierto
+  // directamente en su propia pestaña (confirmado) -- en vez de depender de
+  // eso, se genera un HTML autocontenido (con el CSS embebido) y se ofrece
+  // para descargar; al abrirlo fuera de Claude corre sin esa restricción y
+  // se puede imprimir/guardar como PDF con el propio diálogo del navegador.
+  async function buildPrintableDoc() {
+    const cssText = await fetch('styles.css').then(r => r.text()).catch(() => '');
+    const wasOpen = detailsEl.open;
+    detailsEl.open = true;
+    const reportHtml = detailsEl.outerHTML;
+    detailsEl.open = wasOpen;
+    return `<!doctype html><html><head><meta charset="utf-8"><title>Informe mensual de glucosa</title><style>${cssText}
+details > summary { display: none; }
+body { background: #fff; margin: 0; padding: 24px; }
+.wrap { max-width: 980px; margin: 0 auto; }
+</style></head><body><div class="wrap"><section class="card" id="monthlyReportCard">${reportHtml}</section></div>
+<script>window.addEventListener('load', function () { setTimeout(function () { try { window.print(); } catch (e) {} }, 300); });</script>
+</body></html>`;
+  }
+
   if (printBtn) {
     printBtn.addEventListener('click', () => {
       if (!detailsEl.open) detailsEl.open = true;
       // Espera a que el informe (datos + gráficos) esté realmente en el DOM
-      // antes de abrir el diálogo de impresión -- si no, se imprimía el
-      // mensaje de "Cargando..." en vez del contenido real.
-      ensureLoaded().then(() => {
-        requestAnimationFrame(() => {
-          try {
-            window.print();
-          } catch (e) {
-            // Algunos visores (p.ej. el panel de Artifacts embebido) pueden
-            // bloquear window.print() sin avisar -- si pasa, al menos se ve
-            // un mensaje en vez de que el botón no haga nada en absoluto.
-            console.error('window.print() failed', e);
-            bodyEl.insertAdjacentHTML('afterbegin', '<div class="track-note" style="color:var(--critical);">No se pudo abrir el diálogo de impresión aquí. Abre el enlace del dashboard en su propia pestaña del navegador (fuera del chat) e inténtalo de nuevo.</div>');
-          }
-        });
-      });
+      // antes de generar nada -- si no, se exportaba el mensaje de
+      // "Cargando..." en vez del contenido real.
+      ensureLoaded().then(() => requestAnimationFrame(async () => {
+        try { window.print(); } catch (e) { console.error('window.print() failed', e); }
+        if (!downloadsCap) {
+          bodyEl.insertAdjacentHTML('afterbegin', '<div class="track-note" style="color:var(--critical);">No se pudo abrir el diálogo de impresión aquí ni ofrecer la descarga. Prueba a recargar la página.</div>');
+          return;
+        }
+        try {
+          const doc = await buildPrintableDoc();
+          await downloadsCap.save({ filename: `informe-glucosa-${monthKey()}.html`, data: doc });
+        } catch (e) {
+          console.error('downloads.save failed', e);
+        }
+      }));
     });
   }
 
@@ -2872,6 +2893,11 @@ renderTodayCard(null); // render immediately with defaults so the page is never 
   window.addEventListener('afterprint', () => {
     if (!wasOpenBeforePrint) detailsEl.open = false;
   });
+
+  (async function initDownloads() {
+    if (!window.claude) return;
+    try { downloadsCap = await window.claude.use('downloads'); } catch (e) {}
+  })();
 
   (async function initDb() {
     if (!window.claude) return;

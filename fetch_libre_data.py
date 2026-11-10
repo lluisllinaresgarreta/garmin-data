@@ -22,12 +22,15 @@ import json
 import os
 from datetime import datetime, time, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 from dotenv import load_dotenv
 from pylibrelinkup import APIUrl, PyLibreLinkUp
 
 load_dotenv()
+
+MADRID_TZ = ZoneInfo("Europe/Madrid")
 
 DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
@@ -196,6 +199,26 @@ def compute_night_series(readings) -> dict:
     return result
 
 
+def compute_recent_series(readings) -> list:
+    """Raw [timestamp_ms, value_mgdl] pairs for the "Hoy" card's glucose chart
+    -- same readings as everything else above, no new API calls. Timestamps
+    are converted to real epoch ms via Europe/Madrid tzinfo (readings'
+    .timestamp is LibreLinkUp's naive LOCAL "Timestamp" field, not UTC -- see
+    the comment on MADRID_TZ's only other use, compute_night_series/
+    compute_night_stats, which rely on the same assumption), so the chart
+    renders correctly in JS via new Date(ms) regardless of the viewer's own
+    timezone or of CET/CEST daylight-saving transitions.
+
+    Unlike night_series this is a sparse list of REAL readings, not a padded
+    fixed-slot grid -- merge_prev_glucose.py dedupes by exact timestamp
+    (fresh wins) and trims to the last 48h; a gap just means consecutive
+    timestamps are further apart than usual, which the chart renders as a
+    break in the line rather than connecting across missing data."""
+    out = [[int(r.timestamp.replace(tzinfo=MADRID_TZ).timestamp() * 1000), round(r.value_in_mg_per_dl)] for r in readings]
+    out.sort(key=lambda p: p[0])
+    return out
+
+
 def compute_time_in_range(readings) -> dict:
     if not readings:
         return {"available": False}
@@ -323,6 +346,7 @@ def main():
         "time_in_range": compute_time_in_range(readings),
         "activities": compute_activity_glucose(readings),
         "night_series": compute_night_series(readings),
+        "recent_series": compute_recent_series(readings),
     }
     with open(DATA_DIR / "glucose.json", "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
@@ -332,6 +356,7 @@ def main():
     print(f"  -> ultima lectura: {latest['value_mgdl']} mg/dL ({latest['trend_label']}) a las {latest['time']}" if latest else "  -> sin lectura actual")
     print(f"  -> tiempo en rango: {tir['in_range_pct']}% (bajo {tir['below_pct']}%, alto {tir['above_pct']}%)" if tir.get("available") else "  -> sin tiempo en rango")
     print(f"  -> {len(result['activities'])} actividad(es) con glucosa correlacionada -> data/glucose.json")
+    print(f"  -> {len(result['recent_series'])} lectura(s) en esta ventana (recent_series, antes de fusionar con lo previo)")
     print(f"  -> {len(result['night_series'])} noche(s) parcial(es) en esta ventana (night_series, antes de fusionar con lo previo)")
 
 

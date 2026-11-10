@@ -6,7 +6,7 @@ Uso:
 import argparse
 import json
 import os
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -26,6 +26,24 @@ def login() -> Garmin:
     client = Garmin(email, password)
     client.login()
     return client
+
+
+def _parse_garmin_gmt_ts(s):
+    """dailySleepDTO's sleepStart/EndTimestampGMT come back as a naive ISO-ish
+    string ("2026-11-09T20:28:00.0") representing GMT/UTC wall-clock time, not
+    epoch ms -- parse and attach UTC tzinfo explicitly so it converts to an
+    unambiguous epoch ms for the "Hoy" card's glucose chart to place the sleep
+    band against (same UTC-epoch convention as fetch_libre_data.py's
+    recent_series, so the two line up on one JS timeline regardless of the
+    viewer's own timezone)."""
+    if not s:
+        return None
+    for f in ("%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return int(datetime.strptime(s, f).replace(tzinfo=timezone.utc).timestamp() * 1000)
+        except ValueError:
+            continue
+    return None
 
 
 def fetch_activities(client: Garmin, days: int) -> pd.DataFrame:
@@ -92,6 +110,8 @@ def fetch_daily_metrics(client: Garmin, days: int) -> pd.DataFrame:
             "sleep_light_min": round((daily_sleep.get("lightSleepSeconds") or 0) / 60),
             "sleep_rem_min": round((daily_sleep.get("remSleepSeconds") or 0) / 60),
             "sleep_awake_min": round((daily_sleep.get("awakeSleepSeconds") or 0) / 60),
+            "sleep_start_ts": _parse_garmin_gmt_ts(daily_sleep.get("sleepStartTimestampGMT")),
+            "sleep_end_ts": _parse_garmin_gmt_ts(daily_sleep.get("sleepEndTimestampGMT")),
             "hrv_avg": hrv_summary.get("lastNightAvg"),
             "hrv_weekly_avg": hrv_summary.get("weeklyAvg"),
             "hrv_baseline": hrv_summary.get("baseline"),

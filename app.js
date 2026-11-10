@@ -989,6 +989,14 @@ function chartContainerWidth() {
   const narrow = cw <= 480;
   return Math.max(260, cw - 28 - (narrow ? 0 : 46)); // .act-item padding + .act-detail indent
 }
+function chartWidthFor(elId) {
+  // Same 1-user-unit≈1-real-px reasoning as chartContainerWidth(), for a
+  // container (like #glucoseRow) that has no extra inner padding of its own
+  // to subtract -- its clientWidth already IS the usable width.
+  const el = document.getElementById(elId);
+  const cw = el && el.clientWidth;
+  return cw && cw > 100 ? cw : 600;
+}
 function buildActivityAnalysis(a) {
   const chart = decimateChart(a.chart, 300);
   if (!chart || !chart.t || chart.t.length < 2) return '';
@@ -1979,6 +1987,203 @@ function deltaChip(current, baseline, higherIsBetter, decimals, unit) {
   };
 }
 
+// ---------- Gráfico de glucosa 24h/12h (tarjeta Hoy) ----------
+let glucoseChartRangeHours = 24;
+const GLUCOSE_CHART_GAP_MS = 25 * 60 * 1000; // > ~25min sin lectura -> hueco, no se une la línea
+const GLUCOSE_MADRID_FMT_TIME = new Intl.DateTimeFormat('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' });
+const GLUCOSE_MADRID_FMT_HOUR = new Intl.DateTimeFormat('es-ES', { hour: '2-digit', timeZone: 'Europe/Madrid' });
+
+function glucoseLineColor(v) { return v < 70 ? 'var(--critical)' : v > 180 ? 'var(--warning)' : 'var(--good)'; }
+
+function glucoseActivityStartMs(a) {
+  // a.start_time is Garmin's own local wall-clock string ("YYYY-MM-DD HH:MM:SS"),
+  // same as everywhere else in this dashboard -- parsed assuming the viewer's own
+  // timezone is the athlete's (Europe/Madrid), consistent with how activity dates
+  // are shown everywhere else here. glucose_recent/sleep timestamps are instead
+  // true epoch ms (converted server-side with explicit Europe/Madrid tzinfo), so
+  // they line up correctly on this chart regardless of viewer timezone; only the
+  // activity-band placement relies on that one shared assumption.
+  if (!a || !a.start_time) return null;
+  const ms = new Date(String(a.start_time).replace(' ', 'T')).getTime();
+  return Number.isNaN(ms) ? null : ms;
+}
+
+function buildTodayGlucoseChart(glucose) {
+  const recent = (glucose && glucose.recent_series) || [];
+  if (!recent.length) return '<div class="track-note">Todavía no hay lecturas recientes de glucosa.</div>';
+
+  const nowMs = Date.now();
+  const rangeMs = glucoseChartRangeHours * 3600 * 1000;
+  const windowStart = nowMs - rangeMs;
+
+  const sorted = recent.filter(p => p[0] >= windowStart && p[0] <= nowMs).sort((p1, p2) => p1[0] - p2[0]);
+  if (!sorted.length) {
+    return `<div class="track-note">Sin lecturas de glucosa en las últimas ${glucoseChartRangeHours} h.</div>`;
+  }
+
+  const w = chartWidthFor('glucoseRow'), h = 190, padL = 32, padR = 10, padT = 14, padB = 24;
+  const yLo = 40, yHi = 350;
+  const x = ts => padL + ((ts - windowStart) / rangeMs) * (w - padL - padR);
+  const y = v => padT + (1 - (v - yLo) / (yHi - yLo)) * (h - padT - padB);
+  const clampX = v => Math.max(padL, Math.min(w - padR, v));
+
+  // ---- Banda de rango objetivo 70-180 ----
+  const bandTop = y(180), bandBot = y(70);
+  const bandSvg = `<rect x="${padL}" y="${bandTop.toFixed(1)}" width="${(w - padL - padR).toFixed(1)}" height="${(bandBot - bandTop).toFixed(1)}" fill="var(--good)" opacity="0.12"/>`;
+  const refSvg = [70, 180].map(v => `<line x1="${padL}" x2="${w - padR}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="var(--text-muted)" stroke-width="1" stroke-dasharray="3,3"/><text x="${(padL - 4).toFixed(1)}" y="${(y(v) + 3).toFixed(1)}" text-anchor="end" font-size="9.5" fill="var(--text-muted)">${v}</text>`).join('');
+
+  // ---- Franjas de sueño (DATA.daily) y actividades (DATA.activities) ----
+  function bandRect(startMs, endMs, color, opacity) {
+    const x0 = clampX(x(Math.max(startMs, windowStart)));
+    const x1 = clampX(x(Math.min(endMs, nowMs)));
+    if (x1 - x0 < 1) return { svg: '', x0, x1 };
+    const svg = `<rect x="${x0.toFixed(1)}" y="${padT}" width="${(x1 - x0).toFixed(1)}" height="${(h - padT - padB).toFixed(1)}" fill="${color}" opacity="${opacity}"/>`;
+    return { svg, x0, x1 };
+  }
+  function bandLabel(x0, x1, text) {
+    const width = x1 - x0;
+    if (width < 34 || !text) return '';
+    const cx = (x0 + x1) / 2;
+    return `<text x="${cx.toFixed(1)}" y="${(padT + 11).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="700" fill="var(--text-primary)" opacity="0.85" style="pointer-events:none;">${text}</text>`;
+  }
+  function fmtBandDur(min) {
+    if (!min) return '';
+    const h2 = Math.floor(min / 60), m2 = Math.round(min % 60);
+    return h2 > 0 ? `${h2}h${m2 ? fmt(m2,0).padStart(2,'0') : ''}` : `${fmt(min,0)}min`;
+  }
+
+  const bands = []; // {start,end,kind,label,color}
+  (DATA.daily || []).forEach(d => {
+    const s = Number(d.sleep_start_ts), e = Number(d.sleep_end_ts);
+    if (!s || !e || e <= s) return;
+    if (e < windowStart || s > nowMs) return;
+    bands.push({ start: s, end: e, kind: 'sleep', color: 'var(--sleep)', label: `🌙 ${fmtBandDur((e - s) / 60000)}` });
+  });
+  DATA.activities.forEach(a => {
+    const s = glucoseActivityStartMs(a);
+    if (s == null) return;
+    const e = s + (Number(a.duration_min) || 0) * 60000;
+    if (e <= s || e < windowStart || s > nowMs) return;
+    const meta = CAT_META[a.type] || { icon: '📍', color: 'var(--text-muted)' };
+    bands.push({ start: s, end: e, kind: 'activity', color: meta.color, a, label: `${meta.icon} ${a.name || meta.label || ''} · ${fmtBandDur(a.duration_min)}` });
+  });
+  bands.sort((b1, b2) => b1.start - b2.start);
+  const bandsSvg = bands.map(b => {
+    const { svg, x0, x1 } = bandRect(b.start, b.end, b.color, b.kind === 'sleep' ? 0.16 : 0.18);
+    return svg + bandLabel(x0, x1, b.label);
+  }).join('');
+
+  // ---- Línea de glucosa, coloreada por tramo (roja <70, verde 70-180, naranja
+  // >180), partida en huecos reales (> GLUCOSE_CHART_GAP_MS sin lectura) en vez
+  // de unir puntos lejanos entre sí con una línea recta engañosa. ----
+  const runs = [];
+  let cur = [sorted[0]];
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i][0] - sorted[i-1][0] > GLUCOSE_CHART_GAP_MS) { runs.push(cur); cur = [sorted[i]]; }
+    else cur.push(sorted[i]);
+  }
+  runs.push(cur);
+  const hasGap = runs.length > 1 || (nowMs - sorted[sorted.length-1][0] > GLUCOSE_CHART_GAP_MS) || (sorted[0][0] - windowStart > GLUCOSE_CHART_GAP_MS);
+
+  function crossing(p1, p2, threshold) {
+    const [t1, v1] = p1, [t2, v2] = p2;
+    if ((v1 - threshold) * (v2 - threshold) >= 0) return null;
+    const frac = (threshold - v1) / (v2 - v1);
+    return [t1 + frac * (t2 - t1), threshold];
+  }
+  const lineParts = [];
+  runs.forEach(run => {
+    for (let i = 0; i < run.length - 1; i++) {
+      const p1 = run[i], p2 = run[i+1];
+      const pts = [p1, ...[70,180].map(th => crossing(p1, p2, th)).filter(Boolean).sort((a,b) => a[0]-b[0]), p2];
+      for (let j = 0; j < pts.length - 1; j++) {
+        const a = pts[j], b = pts[j+1];
+        const color = glucoseLineColor((a[1] + b[1]) / 2);
+        lineParts.push(`<line x1="${x(a[0]).toFixed(1)}" y1="${y(a[1]).toFixed(1)}" x2="${x(b[0]).toFixed(1)}" y2="${y(b[1]).toFixed(1)}" stroke="${color}" stroke-width="2.5" stroke-linecap="round"/>`);
+      }
+    }
+  });
+  const lineSvg = lineParts.join('');
+
+  // ---- Marcador del valor actual + flecha de tendencia ----
+  const lastPt = sorted[sorted.length-1];
+  const latest = glucose.latest;
+  const markerSvg = `<circle cx="${x(lastPt[0]).toFixed(1)}" cy="${y(lastPt[1]).toFixed(1)}" r="4.5" fill="var(--surface-card)" stroke="${glucoseLineColor(lastPt[1])}" stroke-width="2.5"/>`;
+  const trendSvg = latest ? `<text x="${(x(lastPt[0])+9).toFixed(1)}" y="${(y(lastPt[1])+4).toFixed(1)}" font-size="13" fill="${glucoseLineColor(lastPt[1])}">${latest.trend_arrow}</text>` : '';
+
+  // ---- Eje X: horas en Europe/Madrid, cada 4h (24h) o 2h (12h) ----
+  const xStepH = glucoseChartRangeHours > 12 ? 4 : 2;
+  const xStepMs = xStepH * 3600000;
+  const xTicks = [];
+  for (let t = Math.ceil(windowStart / xStepMs) * xStepMs; t <= nowMs; t += xStepMs) xTicks.push(t);
+  const xAxisSvg = xTicks.map(t => `<text x="${x(t).toFixed(1)}" y="${h-6}" text-anchor="middle" font-size="9.5" fill="var(--text-muted)">${GLUCOSE_MADRID_FMT_HOUR.format(new Date(t))}</text>`).join('');
+
+  const legendBits = [
+    `<span><span class="sw" style="background:var(--good)"></span>70–180 mg/dL</span>`,
+    `<span><span class="sw" style="background:var(--critical)"></span>&lt;70</span>`,
+    `<span><span class="sw" style="background:var(--warning)"></span>&gt;180</span>`,
+    `<span><span class="sw" style="background:var(--sleep)"></span>🌙 Sueño</span>`,
+  ];
+
+  const chartId = 'tg' + Math.random().toString(36).slice(2,8);
+  const html = `<div class="glucose-chart-wrap">
+    <div class="glucose-chart-head">
+      <div class="act-filter-tabs" id="${chartId}-range">
+        <button type="button" class="act-filter-tab${glucoseChartRangeHours===12?' active':''}" data-hours="12">12h</button>
+        <button type="button" class="act-filter-tab${glucoseChartRangeHours===24?' active':''}" data-hours="24">24h</button>
+      </div>
+    </div>
+    <div class="act-chart-info" id="${chartId}-tip">Pasa el cursor o el dedo por el gráfico para ver cada lectura</div>
+    <svg viewBox="0 0 ${w} ${h}" id="${chartId}">
+      ${bandSvg}${bandsSvg}${refSvg}${lineSvg}${markerSvg}${trendSvg}${xAxisSvg}
+      <line class="chart-hover-line" id="${chartId}-hl" x1="0" x2="0" y1="${padT}" y2="${h-padB}"/>
+      <circle class="chart-hover-dot" id="${chartId}-hd" r="4"/>
+    </svg>
+    <div class="act-chart-legend">${legendBits.join('')}</div>
+    ${hasGap ? `<div class="act-detail-empty" style="margin-top:4px;">Hay huecos sin lectura en este tramo (el sensor no envió datos) — se muestran como cortes en la línea.</div>` : ''}
+  </div>`;
+
+  requestAnimationFrame(() => {
+    const svg = document.getElementById(chartId);
+    if (!svg) return;
+    const hl = document.getElementById(chartId+'-hl');
+    const hd = document.getElementById(chartId+'-hd');
+    const tip = document.getElementById(chartId+'-tip');
+    function bandAt(ts) {
+      return bands.find(b => ts >= b.start && ts <= b.end);
+    }
+    function handleMove(clientX) {
+      const rect = svg.getBoundingClientRect();
+      const relX = (clientX - rect.left) / rect.width * w;
+      let best = sorted[0], bestDiff = Infinity;
+      sorted.forEach(p => { const diff = Math.abs(x(p[0]) - relX); if (diff < bestDiff) { bestDiff = diff; best = p; } });
+      const cx = x(best[0]), cy = y(best[1]);
+      hl.setAttribute('x1', cx); hl.setAttribute('x2', cx); hl.style.opacity = 1;
+      hd.setAttribute('cx', cx); hd.setAttribute('cy', cy); hd.style.opacity = 1;
+      hd.style.stroke = glucoseLineColor(best[1]);
+      const b = bandAt(best[0]);
+      const ctx = b ? (b.kind === 'sleep' ? ' · 🌙 Durmiendo' : ` · ${(CAT_META[b.a.type]||{}).icon || '📍'} ${b.a.name || ''}`) : '';
+      tip.textContent = `${GLUCOSE_MADRID_FMT_TIME.format(new Date(best[0]))} · ${fmt(best[1],0)} mg/dL${ctx}`;
+    }
+    svg.addEventListener('pointermove', e => handleMove(e.clientX));
+    svg.addEventListener('pointerleave', () => {
+      hl.style.opacity = 0; hd.style.opacity = 0;
+      tip.textContent = 'Pasa el cursor o el dedo por el gráfico para ver cada lectura';
+    });
+    const rangeEl = document.getElementById(chartId+'-range');
+    if (rangeEl) {
+      rangeEl.addEventListener('click', e => {
+        const btn = e.target.closest('.act-filter-tab');
+        if (!btn) return;
+        glucoseChartRangeHours = Number(btn.dataset.hours);
+        document.getElementById('glucoseRow').innerHTML = buildTodayGlucoseChart(glucose);
+      });
+    }
+  });
+
+  return html;
+}
+
 function renderTodayCard(todaySession) {
   updateReadinessInsight(todaySession);
     const readiness = lastReadiness.training_readiness;
@@ -2083,7 +2288,7 @@ function renderTodayCard(todaySession) {
         latestEl.innerHTML = '';
       }
 
-      glucoseRowEl.innerHTML = '';
+      glucoseRowEl.innerHTML = buildTodayGlucoseChart(glucose);
 
       const tir = glucose.time_in_range;
       if (tir && tir.available) {

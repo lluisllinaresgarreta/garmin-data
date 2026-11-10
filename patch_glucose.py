@@ -13,22 +13,26 @@ this fast path (it needs data/activities.csv, which this path doesn't fetch) --
 only the top-level `glucose` summary (latest reading/trend, night stats, time in
 range) is refreshed. A full sync will still recompute per-activity glucose as usual.
 
-night_series IS merged (not just forwarded) against whatever the live data.json
-already has: this routine never runs extract_prev_glucose.py/merge_prev_glucose.py
-(it skips the whole Garmin-dependent part of the pipeline for speed), so without
-this merge every quick glucose-only sync would wipe out all but this run's own
-~12h window of the overnight curve -- days of accumulated history gone the moment
-someone taps "Sincronizar glucosa" to check their level before a run.
+night_series and recent_series ARE merged (not just forwarded) against
+whatever the live data.json already has: this routine never runs
+extract_prev_glucose.py/merge_prev_glucose.py (it skips the whole
+Garmin-dependent part of the pipeline for speed), so without this merge every
+quick glucose-only sync would wipe out all but this run's own ~12h window of
+the overnight curve and the "Hoy" card's glucose chart -- hours/days of
+accumulated history gone the moment someone taps "Sincronizar glucosa" to
+check their level before a run.
 
 Uso:
     python patch_glucose.py <ruta-al-data.json-en-vivo> [<ruta-salida>]
 """
 import json
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).parent
 NIGHT_SERIES_KEEP = 14
+RECENT_SERIES_PUBLISH_HOURS = 24
 
 
 def _merge_night(fresh, cached):
@@ -51,6 +55,14 @@ def _merge_night(fresh, cached):
     }
 
 
+def _merge_recent(fresh, cached, now_ms, keep_hours):
+    by_ts = {p[0]: p[1] for p in (cached or [])}
+    for p in (fresh or []):
+        by_ts[p[0]] = p[1]  # fresh wins on an exact-timestamp collision
+    cutoff = now_ms - keep_hours * 3600_000
+    return sorted([ts, v] for ts, v in by_ts.items() if ts >= cutoff and ts <= now_ms)
+
+
 def main():
     if len(sys.argv) < 2:
         raise SystemExit("Uso: python patch_glucose.py <live_data_json_path> [output_path]")
@@ -70,8 +82,14 @@ def main():
     merged_nights = {d: _merge_night(fresh_nights.get(d), live_nights.get(d)) for d in all_dates}
     kept_dates = sorted(merged_nights)[-NIGHT_SERIES_KEEP:]
 
+    now_ms = int(time.time() * 1000)
+    live_recent = (data.get("glucose") or {}).get("recent_series") or []
+    fresh_recent = glucose_raw.get("recent_series") or []
+    merged_recent = _merge_recent(fresh_recent, live_recent, now_ms, RECENT_SERIES_PUBLISH_HOURS)
+
     data["glucose"] = {k: v for k, v in glucose_raw.items() if k != "activities"}
     data["glucose"]["night_series"] = {d: merged_nights[d] for d in kept_dates}
+    data["glucose"]["recent_series"] = merged_recent
 
     out_path.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     g = data["glucose"]

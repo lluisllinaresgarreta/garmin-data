@@ -70,6 +70,36 @@ rápida de solo glucosa, que no pasa por extract/merge) hace su propia fusión
 contra el `data.json` en vivo que ya está leyendo, para no perder noches
 acumuladas cada vez que se usa.
 
+## Gráfico de glucosa 24h/12h (tarjeta "Hoy")
+
+La tarjeta "Hoy" muestra un gráfico de glucosa estilo LibreLink/Gluroo (línea
+coloreada por tramo -- roja &lt;70, verde 70-180, naranja &gt;180 -- con la
+banda de rango objetivo sombreada, franjas de fondo por sueño y por actividad,
+selector 12h/24h, y tooltip al tocar/pasar el cursor). Es puramente visual
+(`buildTodayGlucoseChart()` en `app.js`); los datos que consume vienen de tres
+sitios, ninguno con llamadas nuevas a Garmin/LibreLinkUp:
+
+- **`glucose.recent_series`**: lecturas crudas `[timestamp_ms, mg/dL]`, misma
+  fuente que `night`/`time_in_range`/`night_series`. `compute_recent_series()`
+  en `fetch_libre_data.py` convierte el timestamp naive-local de LibreLinkUp a
+  epoch ms real via `zoneinfo` (Europe/Madrid, con DST correcto), para que el
+  gráfico se posicione bien en el eje temporal pase lo que pase con la zona
+  horaria del navegador de quien lo mire. Mismo patrón de persistencia que
+  `night_series`: `extract_prev_glucose.py` extrae lo ya publicado
+  (`data/prev_glucose_recent.json`), `merge_prev_glucose.py` lo fusiona por
+  timestamp exacto (fresco gana en colisión) manteniendo un buffer de trabajo
+  de 48h en `data/glucose_recent.json`, pero solo publica a `glucose.json` (y
+  por tanto a `data.json`) las últimas 24h -- el gráfico nunca muestra más que
+  eso, no tiene sentido pagar el peso de las 48h completas en cada carga de
+  página. `patch_glucose.py` hace la misma fusión contra el `data.json` en
+  vivo que ya está leyendo.
+- **Sueño**: `daily[].sleep_start_ts` / `sleep_end_ts` (epoch ms UTC),
+  añadidos en `fetch_garmin_data.py` a partir de
+  `dailySleepDTO.sleepStart/EndTimestampGMT`, que Garmin ya devuelve dentro de
+  la misma llamada que da `sleep_hours` etc. -- sin llamada extra.
+- **Actividades**: `activities[].start_time`/`duration_min`/`name`/`type`, que
+  ya existían.
+
 ## Fuerza: ejercicios desde Hevy
 
 El reloj no tiene bien mapeados los ejercicios de gimnasio, así que los entrenos

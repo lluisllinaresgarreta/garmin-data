@@ -1,15 +1,18 @@
 """
 Read the currently-published data.json and pull out (1) the per-activity
 glucose correlation (glucose_start_mgdl/time, glucose_post_mgdl/time) for
-every activity that already has a non-null value, and (2) the overnight
-glucose curve (glucose.night_series) already accumulated across past syncs.
+every activity that already has a non-null value, (2) the overnight glucose
+curve (glucose.night_series), and (3) the raw recent-readings series
+(glucose.recent_series) for the "Hoy" card chart -- both (2) and (3) already
+accumulated across past syncs.
 
-This exists because compute_activity_glucose() and compute_night_series() in
-fetch_libre_data.py can only use readings inside LibreLinkUp's rolling ~12h
-window -- once an activity or a night slot falls outside that window (the
-next sync, hours later), it would otherwise silently overwrite the correct
-value that was computed right after it was last seen. merge_prev_glucose.py
-uses these two files to restore what this run's ~12h window can no longer see.
+This exists because compute_activity_glucose(), compute_night_series() and
+compute_recent_series() in fetch_libre_data.py can only use readings inside
+LibreLinkUp's rolling ~12h window -- once an activity, a night slot, or an
+older reading falls outside that window (the next sync, hours later), it
+would otherwise silently overwrite the correct value that was computed right
+after it was last seen. merge_prev_glucose.py uses these files to restore
+what this run's ~12h window can no longer see.
 
 Uso:
     python extract_prev_glucose.py <ruta-al-data.json-en-vivo> [<ruta-salida-actividades>]
@@ -20,6 +23,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent
 NIGHTS_OUT_PATH = ROOT / "data" / "prev_glucose_nights.json"
+RECENT_OUT_PATH = ROOT / "data" / "prev_glucose_recent.json"
 
 
 def main():
@@ -51,6 +55,10 @@ def main():
     night_series = (data.get("glucose") or {}).get("night_series") or {}
     NIGHTS_OUT_PATH.write_text(json.dumps(night_series, ensure_ascii=False), encoding="utf-8")
     print(f"{len(night_series)} noche(s) previas conservadas -> {NIGHTS_OUT_PATH}")
+
+    recent_series = (data.get("glucose") or {}).get("recent_series") or []
+    RECENT_OUT_PATH.write_text(json.dumps(recent_series, ensure_ascii=False), encoding="utf-8")
+    print(f"{len(recent_series)} lectura(s) reciente(s) previas conservadas -> {RECENT_OUT_PATH}")
 
 
 if __name__ == "__main__":

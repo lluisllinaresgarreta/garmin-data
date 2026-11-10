@@ -22,11 +22,20 @@ night_series merges at SLOT level (same idea, one array index per 15-min
 slot instead of per activity-relative-minute), and is pruned to the most
 recent NIGHT_SERIES_KEEP nights so the file doesn't grow without bound.
 
+recent_series (raw [ts_ms, value] readings for the "Hoy" card's glucose
+chart) merges by exact-timestamp dedup (fresh wins on an exact collision),
+capped to the last RECENT_SERIES_KEEP_HOURS as a working buffer written to
+data/glucose_recent.json -- but only the last RECENT_SERIES_PUBLISH_HOURS of
+that buffer is written into glucose.json's own "recent_series" (what
+actually reaches data.json), since the chart itself never shows more than
+24h and there's no reason to ship a heavier payload than the page uses.
+
 Uso:
     python merge_prev_glucose.py [<prev_glucose_activities.json>]
 """
 import json
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).parent
@@ -35,6 +44,8 @@ CHART_PRE_MIN = 30
 CHART_POST_H = 2
 CHART_EDGE_TOLERANCE_MIN = 20
 NIGHT_SERIES_KEEP = 14
+RECENT_SERIES_KEEP_HOURS = 48
+RECENT_SERIES_PUBLISH_HOURS = 24
 
 
 def _has_data(entry) -> bool:
@@ -112,9 +123,20 @@ def _merge_night(fresh, cached):
     }
 
 
+def _merge_recent(fresh, cached, now_ms, keep_hours):
+    by_ts = {p[0]: p[1] for p in (cached or [])}
+    for p in (fresh or []):
+        by_ts[p[0]] = p[1]  # fresh wins on an exact-timestamp collision
+    cutoff = now_ms - keep_hours * 3600_000
+    merged = sorted([ts, v] for ts, v in by_ts.items() if ts >= cutoff and ts <= now_ms)
+    return merged
+
+
 def main():
     prev_path = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "data" / "prev_glucose_activities.json"
     prev_nights_path = ROOT / "data" / "prev_glucose_nights.json"
+    prev_recent_path = ROOT / "data" / "prev_glucose_recent.json"
+    recent_out_path = ROOT / "data" / "glucose_recent.json"
     glucose_path = ROOT / "data" / "glucose.json"
 
     if not glucose_path.exists():
@@ -159,9 +181,20 @@ def main():
         glucose["night_series"] = {d: fresh_nights[d] for d in kept_dates}
         nights_kept = len(kept_dates)
 
+    now_ms = int(time.time() * 1000)
+    prev_recent = json.loads(prev_recent_path.read_text(encoding="utf-8")) if prev_recent_path.exists() else []
+    if not prev_recent_path.exists():
+        print(f"No existe {prev_recent_path} -- nada previo de lecturas recientes que conservar.")
+    fresh_recent = glucose.get("recent_series") or []
+    working_buffer = _merge_recent(fresh_recent, prev_recent, now_ms, RECENT_SERIES_KEEP_HOURS)
+    recent_out_path.write_text(json.dumps(working_buffer, ensure_ascii=False), encoding="utf-8")
+    publish_cutoff = now_ms - RECENT_SERIES_PUBLISH_HOURS * 3600_000
+    glucose["recent_series"] = [p for p in working_buffer if p[0] >= publish_cutoff]
+
     glucose_path.write_text(json.dumps(glucose, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"Fusionadas/restauradas {touched} actividad(es) con datos previos de glucosa.")
     print(f"night_series: {nights_kept} noche(s) conservadas (maximo {NIGHT_SERIES_KEEP}).")
+    print(f"recent_series: {len(working_buffer)} lectura(s) en el buffer de {RECENT_SERIES_KEEP_HOURS}h, {len(glucose['recent_series'])} publicadas (ultimas {RECENT_SERIES_PUBLISH_HOURS}h) -> {recent_out_path}")
 
 
 if __name__ == "__main__":

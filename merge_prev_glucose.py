@@ -1,14 +1,14 @@
 """
-Merge previously-known per-activity glucose correlations (see
-extract_prev_glucose.py) into data/glucose.json's "activities" dict, for
+Merge previously-known per-activity glucose correlations AND the overnight
+glucose curve (see extract_prev_glucose.py) into data/glucose.json, for
 whatever this run's fetch_libre_data.py could NOT (re)compute because
 LibreLinkUp's rolling ~12h window no longer covers it.
 
 Without this, every full sync would silently wipe glucose_start/post_mgdl
-(and the richer per-activity chart) for any activity older than ~12h, even
-though it was computed correctly right after the activity happened.
+(and the richer per-activity chart, and most of each night's curve) for
+anything older than ~12h, even though it was computed correctly earlier.
 
-This merges at FIELD level, not by replacing the whole activity entry:
+Per-activity merges at FIELD level, not by replacing the whole entry:
 - scalar fields (glucose_start/post_mgdl, chart start/end/post_2h): keep the
   freshly computed value when present, otherwise fall back to the cached one.
 - the chart's reading series: union of cached + fresh points, deduped by
@@ -17,6 +17,10 @@ This merges at FIELD level, not by replacing the whole activity entry:
   the narrower window.
 - "partial" is recomputed from the merged series/points, so it reflects the
   best data known so far rather than just this run's view.
+
+night_series merges at SLOT level (same idea, one array index per 15-min
+slot instead of per activity-relative-minute), and is pruned to the most
+recent NIGHT_SERIES_KEEP nights so the file doesn't grow without bound.
 
 Uso:
     python merge_prev_glucose.py [<prev_glucose_activities.json>]
@@ -30,6 +34,7 @@ ROOT = Path(__file__).parent
 CHART_PRE_MIN = 30
 CHART_POST_H = 2
 CHART_EDGE_TOLERANCE_MIN = 20
+NIGHT_SERIES_KEEP = 14
 
 
 def _has_data(entry) -> bool:
@@ -84,38 +89,79 @@ def _merge_entry(fresh, cached):
     }
 
 
+def _merge_night(fresh, cached):
+    """Slot-by-slot merge of one night's 15-min values: fresh wins wherever
+    this run actually saw a reading for that slot, otherwise fall back to
+    whatever a previous sync already had there."""
+    if not fresh and not cached:
+        return None
+    fresh = fresh or {}
+    cached = cached or {}
+    fresh_vals = fresh.get("values") or []
+    cached_vals = cached.get("values") or []
+    n = max(len(fresh_vals), len(cached_vals))
+    values = []
+    for i in range(n):
+        fv = fresh_vals[i] if i < len(fresh_vals) else None
+        cv = cached_vals[i] if i < len(cached_vals) else None
+        values.append(fv if fv is not None else cv)
+    return {
+        "start": fresh.get("start") or cached.get("start"),
+        "step_min": fresh.get("step_min") or cached.get("step_min"),
+        "values": values,
+    }
+
+
 def main():
     prev_path = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "data" / "prev_glucose_activities.json"
+    prev_nights_path = ROOT / "data" / "prev_glucose_nights.json"
     glucose_path = ROOT / "data" / "glucose.json"
 
     if not glucose_path.exists():
         print(f"No existe {glucose_path} -- nada que fusionar.")
         return
-    if not prev_path.exists():
-        print(f"No existe {prev_path} -- nada previo que conservar.")
-        return
 
-    prev = json.loads(prev_path.read_text(encoding="utf-8"))
     glucose = json.loads(glucose_path.read_text(encoding="utf-8"))
 
-    # Per-activity correlations are restored regardless of whether TODAY's fetch
-    # succeeded (glucose["available"]) -- that flag is about the top-level summary
-    # (latest reading, night stats), not about whether there's prior per-activity
-    # data worth keeping. Bailing out here on a failed fetch used to silently
-    # discard everything extract_prev_glucose.py had just recovered.
-    activities = glucose.setdefault("activities", {})
+    # Per-activity correlations and the overnight curve are restored
+    # regardless of whether TODAY's fetch succeeded (glucose["available"]) --
+    # that flag is about the top-level summary (latest reading, night stats),
+    # not about whether there's prior data worth keeping. Each block below
+    # is independent: a missing prev file for one never skips the other.
     touched = 0
-    for act_id, prev_entry in prev.items():
-        if not _has_data(prev_entry):
-            continue
-        before = activities.get(act_id)
-        merged = _merge_entry(before, prev_entry)
-        if merged != before:
-            activities[act_id] = merged
-            touched += 1
+    if prev_path.exists():
+        prev = json.loads(prev_path.read_text(encoding="utf-8"))
+        activities = glucose.setdefault("activities", {})
+        for act_id, prev_entry in prev.items():
+            if not _has_data(prev_entry):
+                continue
+            before = activities.get(act_id)
+            merged = _merge_entry(before, prev_entry)
+            if merged != before:
+                activities[act_id] = merged
+                touched += 1
+    else:
+        print(f"No existe {prev_path} -- nada previo de actividades que conservar.")
+
+    nights_kept = 0
+    if prev_nights_path.exists():
+        prev_nights = json.loads(prev_nights_path.read_text(encoding="utf-8"))
+        fresh_nights = glucose.get("night_series") or {}
+        all_dates = set(fresh_nights) | set(prev_nights)
+        merged_nights = {d: _merge_night(fresh_nights.get(d), prev_nights.get(d)) for d in all_dates}
+        kept_dates = sorted(merged_nights)[-NIGHT_SERIES_KEEP:]
+        glucose["night_series"] = {d: merged_nights[d] for d in kept_dates}
+        nights_kept = len(kept_dates)
+    else:
+        print(f"No existe {prev_nights_path} -- nada previo de noches que conservar.")
+        fresh_nights = glucose.get("night_series") or {}
+        kept_dates = sorted(fresh_nights)[-NIGHT_SERIES_KEEP:]
+        glucose["night_series"] = {d: fresh_nights[d] for d in kept_dates}
+        nights_kept = len(kept_dates)
 
     glucose_path.write_text(json.dumps(glucose, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"Fusionadas/restauradas {touched} actividad(es) con datos previos de glucosa.")
+    print(f"night_series: {nights_kept} noche(s) conservadas (maximo {NIGHT_SERIES_KEEP}).")
 
 
 if __name__ == "__main__":

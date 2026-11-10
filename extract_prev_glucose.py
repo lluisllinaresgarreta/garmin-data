@@ -1,23 +1,25 @@
 """
-Read the currently-published data.json and pull out the per-activity glucose
-correlation (glucose_start_mgdl/time, glucose_post_mgdl/time) for every
-activity that already has a non-null value.
+Read the currently-published data.json and pull out (1) the per-activity
+glucose correlation (glucose_start_mgdl/time, glucose_post_mgdl/time) for
+every activity that already has a non-null value, and (2) the overnight
+glucose curve (glucose.night_series) already accumulated across past syncs.
 
-This exists because compute_activity_glucose() in fetch_libre_data.py can only
-match an activity against readings inside LibreLinkUp's rolling ~12h window --
-once an activity falls outside that window (the next sync, hours later), the
-correlation computes to null and would otherwise silently overwrite the correct
-value that was computed right after the activity happened. merge_prev_glucose.py
-uses this file to restore what this run's ~12h window can no longer see.
+This exists because compute_activity_glucose() and compute_night_series() in
+fetch_libre_data.py can only use readings inside LibreLinkUp's rolling ~12h
+window -- once an activity or a night slot falls outside that window (the
+next sync, hours later), it would otherwise silently overwrite the correct
+value that was computed right after it was last seen. merge_prev_glucose.py
+uses these two files to restore what this run's ~12h window can no longer see.
 
 Uso:
-    python extract_prev_glucose.py <ruta-al-data.json-en-vivo> [<ruta-salida>]
+    python extract_prev_glucose.py <ruta-al-data.json-en-vivo> [<ruta-salida-actividades>]
 """
 import json
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).parent
+NIGHTS_OUT_PATH = ROOT / "data" / "prev_glucose_nights.json"
 
 
 def main():
@@ -45,6 +47,10 @@ def main():
 
     out_path.write_text(json.dumps(prev, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"{len(prev)} actividad(es) con glucosa previa conservada -> {out_path}")
+
+    night_series = (data.get("glucose") or {}).get("night_series") or {}
+    NIGHTS_OUT_PATH.write_text(json.dumps(night_series, ensure_ascii=False), encoding="utf-8")
+    print(f"{len(night_series)} noche(s) previas conservadas -> {NIGHTS_OUT_PATH}")
 
 
 if __name__ == "__main__":

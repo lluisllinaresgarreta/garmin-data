@@ -20,7 +20,7 @@ Uso:
 """
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -41,6 +41,17 @@ MATCH_TOLERANCE_MIN = 30
 CHART_PRE_MIN = 30
 CHART_POST_H = 2
 CHART_EDGE_TOLERANCE_MIN = 20
+
+# Overnight glucose curve for pattern analysis (separate from the 00:00-08:00
+# NIGHT_START/END_HOUR window above, which is about the single-value summary
+# stats shown on the dashboard, not this per-night series): 21:00 one day
+# through 09:00 the next, local time (readings' .timestamp is already
+# LibreLinkUp's local "Timestamp" field, not FactoryTimestamp/UTC -- same
+# assumption compute_night_stats() already relies on), sampled every 15 min.
+NIGHT_SERIES_START_HOUR = 21
+NIGHT_SERIES_END_HOUR = 9
+NIGHT_SERIES_STEP_MIN = 15
+NIGHT_SERIES_SLOTS = (24 - NIGHT_SERIES_START_HOUR + NIGHT_SERIES_END_HOUR) * 60 // NIGHT_SERIES_STEP_MIN
 
 REGIONS = ["EU", "DE", "FR", "EU2", "US", "AE", "AP", "AU", "CA", "JP", "LA", "RU"]
 
@@ -140,6 +151,49 @@ def compute_night_stats(readings) -> dict:
         "hypo_count": sum(1 for v in values if v < HYPO_THRESHOLD),
         "reading_count": len(values),
     }
+
+
+def compute_night_series(readings) -> dict:
+    """Buckets the SAME readings already fetched for the stats above (no new
+    API calls) into 15-min slots across each 21:00->09:00 local night, keyed
+    by the morning's date (the night spanning day D 21:00 through day D+1
+    09:00 is keyed as D+1, matching how a user thinks of "last night" from
+    that morning). Each sync only ever sees part of a night -- LibreLinkUp's
+    ~12h rolling window -- so this is necessarily partial per call;
+    merge_prev_glucose.py fills in the rest from what a previous sync saw."""
+    buckets = {}  # night_date -> {slot_index: (offset_within_slot_min, value)}
+    for r in readings:
+        ts = r.timestamp
+        if ts.hour >= NIGHT_SERIES_START_HOUR:
+            night_date = (ts.date() + timedelta(days=1)).isoformat()
+            night_start = datetime.combine(ts.date(), time(NIGHT_SERIES_START_HOUR, 0))
+        elif ts.hour < NIGHT_SERIES_END_HOUR:
+            night_date = ts.date().isoformat()
+            night_start = datetime.combine(ts.date() - timedelta(days=1), time(NIGHT_SERIES_START_HOUR, 0))
+        else:
+            continue  # daytime reading, not part of any night window
+
+        offset_min = (ts - night_start).total_seconds() / 60
+        slot = int(offset_min // NIGHT_SERIES_STEP_MIN)
+        if not (0 <= slot < NIGHT_SERIES_SLOTS):
+            continue
+        offset_in_slot = offset_min - slot * NIGHT_SERIES_STEP_MIN
+        bucket = buckets.setdefault(night_date, {})
+        existing = bucket.get(slot)
+        if existing is None or offset_in_slot < existing[0]:
+            bucket[slot] = (offset_in_slot, round(r.value_in_mg_per_dl))
+
+    result = {}
+    for night_date, bucket in buckets.items():
+        values = [None] * NIGHT_SERIES_SLOTS
+        for slot, (_, val) in bucket.items():
+            values[slot] = val
+        result[night_date] = {
+            "start": f"{NIGHT_SERIES_START_HOUR:02d}:00",
+            "step_min": NIGHT_SERIES_STEP_MIN,
+            "values": values,
+        }
+    return result
 
 
 def compute_time_in_range(readings) -> dict:
@@ -268,6 +322,7 @@ def main():
         "night": compute_night_stats(readings),
         "time_in_range": compute_time_in_range(readings),
         "activities": compute_activity_glucose(readings),
+        "night_series": compute_night_series(readings),
     }
     with open(DATA_DIR / "glucose.json", "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
@@ -277,6 +332,7 @@ def main():
     print(f"  -> ultima lectura: {latest['value_mgdl']} mg/dL ({latest['trend_label']}) a las {latest['time']}" if latest else "  -> sin lectura actual")
     print(f"  -> tiempo en rango: {tir['in_range_pct']}% (bajo {tir['below_pct']}%, alto {tir['above_pct']}%)" if tir.get("available") else "  -> sin tiempo en rango")
     print(f"  -> {len(result['activities'])} actividad(es) con glucosa correlacionada -> data/glucose.json")
+    print(f"  -> {len(result['night_series'])} noche(s) parcial(es) en esta ventana (night_series, antes de fusionar con lo previo)")
 
 
 if __name__ == "__main__":

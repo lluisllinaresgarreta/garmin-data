@@ -49,6 +49,27 @@ eso:
   glucosa por actividad que LibreLinkUp ya no puede recalcular (ventana móvil de
   ~12h) entre sincronizaciones.
 
+## Curva de glucosa nocturna (`glucose.night_series`)
+
+Para que el entrenador (Claude) pueda analizar patrones nocturnos, `data.json`
+incluye `glucose.night_series`, un objeto `{fecha_de_la_mañana: {start, step_min,
+values}}` con la curva de 21:00 a 09:00 (hora local) muestreada cada 15 minutos
+(`values` tiene 48 enteros en mg/dL o `null`), para las últimas 14 noches. No se
+muestra en la interfaz, es solo para análisis.
+
+No hace ninguna llamada nueva a LibreLinkUp: `compute_night_series()` en
+`fetch_libre_data.py` reutiliza las mismas lecturas que ya se descargan para
+`night`/`time_in_range`. Como LibreLinkUp solo expone una ventana móvil de ~12h,
+cada sincronización solo ve una parte de una noche -- por eso, igual que con la
+correlación de glucosa por actividad, `extract_prev_glucose.py` extrae del
+`data.json` publicado el `night_series` previo (a `data/prev_glucose_nights.json`)
+y `merge_prev_glucose.py` lo fusiona franja a franja con lo que esta sincronización
+sí pudo ver (la franja fresca gana donde hay dato, si no se conserva la anterior),
+recortando siempre a las últimas 14 noches. `patch_glucose.py` (la sincronización
+rápida de solo glucosa, que no pasa por extract/merge) hace su propia fusión
+contra el `data.json` en vivo que ya está leyendo, para no perder noches
+acumuladas cada vez que se usa.
+
 ## Fuerza: ejercicios desde Hevy
 
 El reloj no tiene bien mapeados los ejercicios de gimnasio, así que los entrenos

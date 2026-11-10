@@ -29,15 +29,22 @@ def login() -> Garmin:
 
 
 def _parse_garmin_gmt_ts(s):
-    """dailySleepDTO's sleepStart/EndTimestampGMT come back as a naive ISO-ish
-    string ("2026-11-09T20:28:00.0") representing GMT/UTC wall-clock time, not
-    epoch ms -- parse and attach UTC tzinfo explicitly so it converts to an
-    unambiguous epoch ms for the "Hoy" card's glucose chart to place the sleep
-    band against (same UTC-epoch convention as fetch_libre_data.py's
-    recent_series, so the two line up on one JS timeline regardless of the
-    viewer's own timezone)."""
-    if not s:
+    """dailySleepDTO's sleepStart/EndTimestampGMT -- observed in production as
+    an epoch-ms INTEGER already (despite some older reverse-engineering
+    writeups describing a naive ISO-ish string like "2026-11-09T20:28:00.0"
+    for this same field; this handles both, since which one Garmin actually
+    sends has turned out to vary). A string is parsed as naive GMT/UTC
+    wall-clock time (explicit UTC tzinfo attached, not epoch ms); an int/float
+    is epoch already -- auto-detected as seconds vs ms by magnitude (ms for
+    any real 21st-century date is >= 10^12, seconds is ~10^9-10^10), then
+    normalized to epoch ms either way, so this lines up on the same UTC-epoch
+    timeline as fetch_libre_data.py's recent_series for the "Hoy" card's
+    glucose chart, regardless of the viewer's own timezone."""
+    if s is None or s == "":
         return None
+    if isinstance(s, (int, float)):
+        ms = int(s)
+        return ms if ms >= 10**12 else ms * 1000
     for f in ("%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"):
         try:
             return int(datetime.strptime(s, f).replace(tzinfo=timezone.utc).timestamp() * 1000)

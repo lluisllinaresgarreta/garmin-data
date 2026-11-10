@@ -2107,7 +2107,14 @@ function renderGlucoseChart(opts) {
   // ---- Banda de rango objetivo 70-180 ----
   const bandTop = y(180), bandBot = y(70);
   const bandSvg = `<rect x="${padL}" y="${bandTop.toFixed(1)}" width="${(w - padL - padR).toFixed(1)}" height="${(bandBot - bandTop).toFixed(1)}" fill="var(--good)" opacity="0.12"/>`;
-  const refSvg = [70, 180].map(v => `<line x1="${padL}" x2="${w - padR}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="var(--text-muted)" stroke-width="1" stroke-dasharray="3,3"/><text x="${(padL - 4).toFixed(1)}" y="${(y(v) + 3).toFixed(1)}" text-anchor="end" font-size="9.5" fill="var(--text-muted)">${v}</text>`).join('');
+  // 70/180 son los límites del rango objetivo (línea más marcada, ya resaltan
+  // el borde de la banda verde); 50/100/150/200 son referencias de escala
+  // adicionales, más tenues, para poder leer cualquier valor del eje Y de un
+  // vistazo sin tener que interpolar.
+  const refSvg = [50, 70, 100, 150, 180, 200].map(v => {
+    const isThreshold = v === 70 || v === 180;
+    return `<line x1="${padL}" x2="${w - padR}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="${isThreshold ? 'var(--text-muted)' : 'var(--border)'}" stroke-width="1" stroke-dasharray="3,3" opacity="${isThreshold ? '1' : '0.8'}"/><text x="${(padL - 4).toFixed(1)}" y="${(y(v) + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--text-muted)">${v}</text>`;
+  }).join('');
 
   // ---- Franjas de sueño (DATA.daily) y actividades (DATA.activities) ----
   function bandRect(startMs, endMs, color, opacity) {
@@ -2227,7 +2234,8 @@ function renderGlucoseChart(opts) {
     for (let t = Math.ceil(windowStart / xStepMs) * xStepMs; t <= windowEnd; t += xStepMs) ticks.push(t);
     return ticks;
   })();
-  const xAxisSvg = xTicks.map(t => `<text x="${x(t).toFixed(1)}" y="${h-6}" text-anchor="middle" font-size="9.5" fill="var(--text-muted)">${GLUCOSE_MADRID_FMT_HOUR.format(new Date(t))}</text>`).join('');
+  const xAxisFontSize = xTicks.length > 12 ? 8 : 9.5;
+  const xAxisSvg = xTicks.map(t => `<text x="${x(t).toFixed(1)}" y="${h-6}" text-anchor="middle" font-size="${xAxisFontSize}" fill="var(--text-muted)">${GLUCOSE_MADRID_FMT_HOUR.format(new Date(t))}</text>`).join('');
 
   const legendBits = [
     `<span><span class="sw" style="background:var(--good)"></span>70–180 mg/dL</span>`,
@@ -2337,7 +2345,7 @@ function buildTodayGlucoseChart(glucose) {
     latest: glucose.latest,
     showRangeToggle: true,
     rangeHours: glucoseChartRangeHours,
-    xStepH: glucoseChartRangeHours > 12 ? 4 : 2,
+    xStepH: 1,
     onRangeChange: (hours) => {
       glucoseChartRangeHours = hours;
       const el = document.getElementById('glucoseRow');
@@ -2352,7 +2360,7 @@ function buildTodayGlucoseChart(glucose) {
 // que usa buildTodayGlucoseChart. ----------
 function buildGlucoseDayChart(dateStr, dayReadings, dayDiabetesEntries) {
   const { start, end } = madridDayBounds(dateStr);
-  const xTicks = [0, 4, 8, 12, 16, 20, 24].map(h => start + h * 3600000);
+  const xTicks = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24].map(h => start + h * 3600000);
   return renderGlucoseChart({
     windowStart: start,
     windowEnd: end,

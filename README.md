@@ -100,6 +100,40 @@ sitios, ninguno con llamadas nuevas a Garmin/LibreLinkUp:
 - **Actividades**: `activities[].start_time`/`duration_min`/`name`/`type`, que
   ya existían.
 
+### Registro de comidas e insulina (`diabetes_log`)
+
+Igual que `coach_notes`/`coach_sessions`, Claude escribe directamente en la
+base de datos del artifact (via `ArtifactData`, nunca tocando el repo ni la
+sincronización con Garmin/LibreLinkUp) cuando Lluis le cuenta por chat que ha
+comido algo o se ha puesto insulina. El gráfico de "Hoy" se suscribe en vivo
+(`onSnapshot`) a los documentos de las últimas 48h y dibuja un marcador en la
+hora exacta -- sin necesidad de recargar la página.
+
+Colección `diabetes_log`, un documento por evento (`doc_id` sugerido:
+`d_<ts>_<algo único>`, para evitar colisión si dos eventos caen en el mismo
+milisegundo):
+```
+{
+  ts: <epoch ms>,
+  type: "meal" | "insulin" | "note",
+  carbs_g: <número>,           // solo type:"meal"
+  label: "<texto corto>",      // solo type:"meal", ej. "Pasta con pollo"
+  insulin_units: <número>,     // solo type:"insulin"
+  insulin_type: "fiasp" | "toujeo",  // solo type:"insulin" -- toujeo es basal
+                                      // y se dibuja distinto (discreto, sin 💉)
+  note: "<texto opcional>",
+}
+```
+Ejemplo de escritura (desde cualquier conversación, con la URL del artifact de
+arriba):
+```
+ArtifactData action="set" collection="diabetes_log" doc_id="d_1762784400000_a1"
+  data={"ts": 1762784400000, "type": "meal", "carbs_g": 65, "label": "Pasta con pollo"}
+```
+El informe mensual de glucosa, cuando exista, reutilizaría la misma colección
+con su propia consulta por rango de mes (igual que `coach_sessions` ya hace
+semana vs. mes) -- de momento solo el gráfico de "Hoy" (24h/12h) la consume.
+
 ## Fuerza: ejercicios desde Hevy
 
 El reloj no tiene bien mapeados los ejercicios de gimnasio, así que los entrenos

@@ -1989,11 +1989,46 @@ function deltaChip(current, baseline, higherIsBetter, decimals, unit) {
 
 // ---------- Gráfico de glucosa 24h/12h (tarjeta Hoy) ----------
 let glucoseChartRangeHours = 24;
+// Comidas/insulina (coach escrito por Claude en window.claude db, igual que
+// coach_notes/coach_sessions) -- poblado en vivo por la suscripción onSnapshot
+// a "diabetes_log" en la IIFE del entrenador, leído aquí por closure.
+let diabetesLogDocs = [];
 const GLUCOSE_CHART_GAP_MS = 25 * 60 * 1000; // > ~25min sin lectura -> hueco, no se une la línea
 const GLUCOSE_MADRID_FMT_TIME = new Intl.DateTimeFormat('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' });
 const GLUCOSE_MADRID_FMT_HOUR = new Intl.DateTimeFormat('es-ES', { hour: '2-digit', timeZone: 'Europe/Madrid' });
+const DIABETES_MARKER_PROXIMITY_PX = 30;
 
 function glucoseLineColor(v) { return v < 70 ? 'var(--critical)' : v > 180 ? 'var(--warning)' : 'var(--good)'; }
+
+function diabetesMarkerColor(kind) {
+  if (kind === 'meal') return 'var(--warning)';
+  if (kind === 'rapid') return 'var(--accent)';
+  if (kind === 'basal') return 'var(--text-secondary)';
+  return 'var(--text-muted)'; // note
+}
+function diabetesTooltipText(e) {
+  const time = GLUCOSE_MADRID_FMT_TIME.format(new Date(e.ts));
+  let desc;
+  if (e.type === 'meal') desc = `🍽️ ${e.label || 'Comida'}${e.carbs_g != null ? ' · ' + fmt(e.carbs_g,0) + ' g' : ''}`;
+  else if (e.type === 'insulin') desc = e.insulin_type === 'toujeo'
+    ? `💉 Toujeo (basal)${e.insulin_units != null ? ' · ' + fmt(e.insulin_units,0) + ' u' : ''}`
+    : `💉 ${e.insulin_type ? e.insulin_type.charAt(0).toUpperCase() + e.insulin_type.slice(1) : 'Insulina'} (rápida)${e.insulin_units != null ? ' · ' + fmt(e.insulin_units,0) + ' u' : ''}`;
+  else desc = '📝 Nota';
+  return `${time} · ${desc}${e.note ? ' · ' + e.note : ''}`;
+}
+// Separa en dos carriles (arriba: insulina/nota: abajo: comida) y apila los
+// que caen demasiado cerca en X para que sus etiquetas no se solapen -- mismo
+// criterio de "demasiado cerca -> siguiente nivel" que ya usa buildGlucoseChart
+// para sus propios puntos (inicio/fin/mínimo).
+function stackDiabetesMarkers(list) {
+  const sorted = list.slice().sort((a, b) => a.cx - b.cx);
+  let prevX = -Infinity, prevLevel = -1;
+  sorted.forEach(m => {
+    m.level = (m.cx - prevX < DIABETES_MARKER_PROXIMITY_PX) ? prevLevel + 1 : 0;
+    prevX = m.cx; prevLevel = m.level;
+  });
+  return sorted;
+}
 
 function glucoseActivityStartMs(a) {
   // a.start_time is Garmin's own local wall-clock string ("YYYY-MM-DD HH:MM:SS"),
@@ -2021,7 +2056,10 @@ function buildTodayGlucoseChart(glucose) {
     return `<div class="track-note">Sin lecturas de glucosa en las últimas ${glucoseChartRangeHours} h.</div>`;
   }
 
-  const w = chartWidthFor('glucoseRow'), h = 190, padL = 32, padR = 10, padT = 14, padB = 24;
+  // padT/padB reserve two marker "lanes" outside the glucose plot area itself
+  // (top: insulin/nota, bottom: comidas), on top of the usual axis margins --
+  // see diabetesMarkersSvg below for the exact lane geometry.
+  const w = chartWidthFor('glucoseRow'), h = 190, padL = 32, padR = 10, padT = 24, padB = 36;
   const yLo = 40, yHi = 350;
   const x = ts => padL + ((ts - windowStart) / rangeMs) * (w - padL - padR);
   const y = v => padT + (1 - (v - yLo) / (yHi - yLo)) * (h - padT - padB);
@@ -2072,6 +2110,36 @@ function buildTodayGlucoseChart(glucose) {
     const { svg, x0, x1 } = bandRect(b.start, b.end, b.color, b.kind === 'sleep' ? 0.16 : 0.18);
     return svg + bandLabel(x0, x1, b.label);
   }).join('');
+
+  // ---- Registro de comidas/insulina (diabetes_log, escrito por Claude) ----
+  // Carril superior (insulina/nota) entre y=4 y el borde del área de trazado
+  // (padT=24); carril inferior (comidas) entre el borde inferior del área de
+  // trazado (h-padB) y la fila de horas del eje X, que vive más abajo todavía.
+  const TOP_LANE_Y = padT - 8, TOP_LANE_STEP = 10;
+  const BOTTOM_LANE_Y = h - padB + 8, BOTTOM_LANE_STEP = 10;
+  const diabetesRaw = (diabetesLogDocs || []).filter(e => e && e.ts >= windowStart && e.ts <= nowMs).map(e => {
+    let zone, icon, kind, text;
+    if (e.type === 'meal') { zone = 'bottom'; icon = '🍽️'; kind = 'meal'; text = e.carbs_g != null ? `${fmt(e.carbs_g,0)} g` : ''; }
+    else if (e.type === 'insulin' && e.insulin_type === 'toujeo') { zone = 'top'; icon = ''; kind = 'basal'; text = `Toujeo${e.insulin_units != null ? ' ' + fmt(e.insulin_units,0) + 'u' : ''}`; }
+    else if (e.type === 'insulin') { zone = 'top'; icon = '💉'; kind = 'rapid'; text = e.insulin_units != null ? `${fmt(e.insulin_units,0)} u` : ''; }
+    else { zone = 'top'; icon = '📝'; kind = 'note'; text = ''; }
+    return { e, zone, icon, kind, text, cx: x(e.ts) };
+  });
+  const topMarkers = stackDiabetesMarkers(diabetesRaw.filter(m => m.zone === 'top'));
+  const bottomMarkers = stackDiabetesMarkers(diabetesRaw.filter(m => m.zone === 'bottom'));
+  function diabetesMarkerY(m) {
+    return m.zone === 'top' ? TOP_LANE_Y - m.level * TOP_LANE_STEP : BOTTOM_LANE_Y + m.level * BOTTOM_LANE_STEP;
+  }
+  function diabetesMarkerSvg(m) {
+    const color = diabetesMarkerColor(m.kind);
+    const cy = diabetesMarkerY(m);
+    const connectorY2 = m.zone === 'top' ? padT : h - padB;
+    const label = m.kind === 'basal' ? m.text : `${m.icon}${m.text ? ' ' + m.text : ''}`;
+    const fontSize = m.kind === 'basal' ? 8.5 : 9.5;
+    const fontWeight = m.kind === 'basal' ? 600 : 700;
+    return `<line x1="${m.cx.toFixed(1)}" x2="${m.cx.toFixed(1)}" y1="${(cy + (m.zone==='top'?4:-4)).toFixed(1)}" y2="${connectorY2}" stroke="${color}" stroke-width="1" stroke-dasharray="1.5,2" opacity="0.5"/><text x="${m.cx.toFixed(1)}" y="${cy.toFixed(1)}" text-anchor="middle" font-size="${fontSize}" font-weight="${fontWeight}" fill="${color}">${esc(label)}</text>`;
+  }
+  const diabetesMarkersSvg = topMarkers.concat(bottomMarkers).map(diabetesMarkerSvg).join('');
 
   // ---- Línea de glucosa, coloreada por tramo (roja <70, verde 70-180, naranja
   // >180), partida en huecos reales (> GLUCOSE_CHART_GAP_MS sin lectura) en vez
@@ -2124,6 +2192,9 @@ function buildTodayGlucoseChart(glucose) {
     `<span><span class="sw" style="background:var(--warning)"></span>&gt;180</span>`,
     `<span><span class="sw" style="background:var(--sleep)"></span>🌙 Sueño</span>`,
   ];
+  if (bottomMarkers.some(m => m.kind === 'meal')) legendBits.push(`<span><span class="sw" style="background:var(--warning)"></span>🍽️ Comida</span>`);
+  if (topMarkers.some(m => m.kind === 'rapid')) legendBits.push(`<span><span class="sw" style="background:var(--accent)"></span>💉 Insulina rápida</span>`);
+  if (topMarkers.some(m => m.kind === 'basal')) legendBits.push(`<span><span class="sw" style="background:var(--text-secondary)"></span>Insulina basal</span>`);
 
   const chartId = 'tg' + Math.random().toString(36).slice(2,8);
   const html = `<div class="glucose-chart-wrap">
@@ -2135,7 +2206,7 @@ function buildTodayGlucoseChart(glucose) {
     </div>
     <div class="act-chart-info" id="${chartId}-tip">Pasa el cursor o el dedo por el gráfico para ver cada lectura</div>
     <svg viewBox="0 0 ${w} ${h}" id="${chartId}">
-      ${bandSvg}${bandsSvg}${refSvg}${lineSvg}${markerSvg}${trendSvg}${xAxisSvg}
+      ${bandSvg}${bandsSvg}${refSvg}${lineSvg}${markerSvg}${trendSvg}${xAxisSvg}${diabetesMarkersSvg}
       <line class="chart-hover-line" id="${chartId}-hl" x1="0" x2="0" y1="${padT}" y2="${h-padB}"/>
       <circle class="chart-hover-dot" id="${chartId}-hd" r="4"/>
     </svg>
@@ -2152,9 +2223,29 @@ function buildTodayGlucoseChart(glucose) {
     function bandAt(ts) {
       return bands.find(b => ts >= b.start && ts <= b.end);
     }
-    function handleMove(clientX) {
+    const allDiabetesMarkers = topMarkers.concat(bottomMarkers);
+    function diabetesMarkerAt(relX, relY) {
+      let hit = null, bestD = 13; // px hit radius, bigger than the visible mark itself
+      allDiabetesMarkers.forEach(m => {
+        const cy = diabetesMarkerY(m);
+        const d = Math.hypot(m.cx - relX, cy - relY);
+        if (d < bestD) { bestD = d; hit = { m, cy }; }
+      });
+      return hit;
+    }
+    function handleMove(clientX, clientY) {
       const rect = svg.getBoundingClientRect();
       const relX = (clientX - rect.left) / rect.width * w;
+      const relY = (clientY - rect.top) / rect.height * h;
+      const markerHit = diabetesMarkerAt(relX, relY);
+      if (markerHit) {
+        const color = diabetesMarkerColor(markerHit.m.kind);
+        hl.setAttribute('x1', markerHit.m.cx); hl.setAttribute('x2', markerHit.m.cx); hl.style.opacity = 1;
+        hd.setAttribute('cx', markerHit.m.cx); hd.setAttribute('cy', markerHit.cy); hd.style.opacity = 1;
+        hd.style.stroke = color;
+        tip.textContent = diabetesTooltipText(markerHit.m.e);
+        return;
+      }
       let best = sorted[0], bestDiff = Infinity;
       sorted.forEach(p => { const diff = Math.abs(x(p[0]) - relX); if (diff < bestDiff) { bestDiff = diff; best = p; } });
       const cx = x(best[0]), cy = y(best[1]);
@@ -2165,7 +2256,7 @@ function buildTodayGlucoseChart(glucose) {
       const ctx = b ? (b.kind === 'sleep' ? ' · 🌙 Durmiendo' : ` · ${(CAT_META[b.a.type]||{}).icon || '📍'} ${b.a.name || ''}`) : '';
       tip.textContent = `${GLUCOSE_MADRID_FMT_TIME.format(new Date(best[0]))} · ${fmt(best[1],0)} mg/dL${ctx}`;
     }
-    svg.addEventListener('pointermove', e => handleMove(e.clientX));
+    svg.addEventListener('pointermove', e => handleMove(e.clientX, e.clientY));
     svg.addEventListener('pointerleave', () => {
       hl.style.opacity = 0; hd.style.opacity = 0;
       tip.textContent = 'Pasa el cursor o el dedo por el gráfico para ver cada lectura';
@@ -2462,6 +2553,22 @@ renderTodayCard(null); // render immediately with defaults so the page is never 
         renderTodayCard(todayDoc ? todayDoc.data() : null);
       },
       (err) => console.error('coach_sessions onSnapshot error', err)
+    );
+
+    // Registro de comidas/insulina que Claude escribe directamente en esta
+    // colección cuando se lo cuentas por chat -- últimas 48h para el gráfico
+    // de "Hoy" (24h/12h); el informe mensual, cuando exista, haría su propia
+    // consulta por mes igual que coach_sessions arriba.
+    const diabetesCutoff = Date.now() - 48 * 3600000;
+    db.collection('diabetes_log').where('ts', '>=', diabetesCutoff).orderBy('ts', 'asc').limit(200).onSnapshot(
+      (snap) => {
+        diabetesLogDocs = snap.docs.map(d => d.data());
+        if (DATA.glucose && DATA.glucose.available) {
+          const el = document.getElementById('glucoseRow');
+          if (el) el.innerHTML = buildTodayGlucoseChart(DATA.glucose);
+        }
+      },
+      (err) => console.error('diabetes_log onSnapshot error', err)
     );
   })();
 })();

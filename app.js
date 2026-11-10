@@ -2804,9 +2804,9 @@ renderTodayCard(null); // render immediately with defaults so the page is never 
   }
 
   function ensureLoaded() {
-    if (loaded) { renderReport(); return; }
+    if (loaded) { renderReport(); return Promise.resolve(); }
     renderPlaceholder('Cargando informe mensual…');
-    fetch('glucose_month.json').then(r => r.ok ? r.json() : []).then(data => {
+    return fetch('glucose_month.json').then(r => r.ok ? r.json() : []).then(data => {
       monthReadings = data || [];
       loaded = true;
       renderReport();
@@ -2834,8 +2834,12 @@ renderTodayCard(null); // render immediately with defaults so the page is never 
   if (printBtn) {
     printBtn.addEventListener('click', () => {
       if (!detailsEl.open) detailsEl.open = true;
-      ensureLoaded();
-      window.print();
+      // Espera a que el informe (datos + gráficos) esté realmente en el DOM
+      // antes de abrir el diálogo de impresión -- si no, se imprimía el
+      // mensaje de "Cargando..." en vez del contenido real.
+      ensureLoaded().then(() => {
+        requestAnimationFrame(() => window.print());
+      });
     });
   }
 

@@ -1996,6 +1996,37 @@ let diabetesLogDocs = [];
 const GLUCOSE_CHART_GAP_MS = 25 * 60 * 1000; // > ~25min sin lectura -> hueco, no se une la línea
 const GLUCOSE_MADRID_FMT_TIME = new Intl.DateTimeFormat('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' });
 const GLUCOSE_MADRID_FMT_HOUR = new Intl.DateTimeFormat('es-ES', { hour: '2-digit', timeZone: 'Europe/Madrid' });
+// en-CA renders as YYYY-MM-DD directly, which is what every date-string
+// comparison elsewhere in this file (activities' .date, coach_sessions' .date,
+// etc.) already expects.
+const MADRID_DATE_FMT = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit' });
+function madridDateStrFromMs(ms) { return MADRID_DATE_FMT.format(new Date(ms)); }
+// Spain only ever runs two UTC offsets (CET +60min / CEST +120min), so this
+// read-the-wall-clock-back trick is exact except within the DST-transition
+// hour itself (once or twice a year, and irrelevant at day boundaries since
+// the transition always happens at 02:00-03:00 local, never at midnight).
+function madridOffsetMinutesAt(ms) {
+  const dtf = new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Madrid', hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const p = dtf.formatToParts(new Date(ms)).reduce((acc, part) => { acc[part.type] = part.value; return acc; }, {});
+  const hour24 = Number(p.hour) === 24 ? 0 : Number(p.hour);
+  const asUTC = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), hour24, Number(p.minute), Number(p.second));
+  return Math.round((asUTC - ms) / 60000);
+}
+function madridDayStartMs(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const utcGuess = Date.UTC(y, m - 1, d, 0, 0, 0);
+  return utcGuess - madridOffsetMinutesAt(utcGuess) * 60000;
+}
+function addDaysToDateStr(dateStr, n) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + n);
+  return dt.toISOString().slice(0, 10);
+}
+function madridDayBounds(dateStr) {
+  return { start: madridDayStartMs(dateStr), end: madridDayStartMs(addDaysToDateStr(dateStr, 1)) };
+}
 const DIABETES_MARKER_PROXIMITY_PX = 30;
 
 function glucoseLineColor(v) { return v < 70 ? 'var(--critical)' : v > 180 ? 'var(--warning)' : 'var(--good)'; }
@@ -2043,23 +2074,31 @@ function glucoseActivityStartMs(a) {
   return Number.isNaN(ms) ? null : ms;
 }
 
-function buildTodayGlucoseChart(glucose) {
-  const recent = (glucose && glucose.recent_series) || [];
-  if (!recent.length) return '<div class="track-note">Todavía no hay lecturas recientes de glucosa.</div>';
+// Núcleo compartido por el gráfico de "Hoy" (24h/12h desde ahora) y cada
+// día del informe mensual (00:00-24:00 de un día concreto) -- MISMO
+// componente exacto, solo cambia la ventana temporal y algunos extras
+// (selector 12h/24h y marcador de "ahora" son solo de Hoy).
+//
+// opts:
+//   windowStart, windowEnd (ms), readings ([ts,val][]), diabetesEntries
+//   (diabetes_log docs sin filtrar -- se filtran aquí por ventana),
+//   containerElId (para chartWidthFor), emptyMessage,
+//   showRangeToggle/rangeHours (Hoy), showTrend/latest (Hoy),
+//   xTicks (array de ms explícito; si no se da, se genera cada xStepH horas).
+function renderGlucoseChart(opts) {
+  const { windowStart, windowEnd, readings, diabetesEntries, containerElId, emptyMessage } = opts;
+  const rangeMs = windowEnd - windowStart;
+  if (!readings || !readings.length) return `<div class="track-note">${emptyMessage || 'Sin lecturas de glucosa.'}</div>`;
 
-  const nowMs = Date.now();
-  const rangeMs = glucoseChartRangeHours * 3600 * 1000;
-  const windowStart = nowMs - rangeMs;
-
-  const sorted = recent.filter(p => p[0] >= windowStart && p[0] <= nowMs).sort((p1, p2) => p1[0] - p2[0]);
+  const sorted = readings.filter(p => p[0] >= windowStart && p[0] <= windowEnd).sort((p1, p2) => p1[0] - p2[0]);
   if (!sorted.length) {
-    return `<div class="track-note">Sin lecturas de glucosa en las últimas ${glucoseChartRangeHours} h.</div>`;
+    return `<div class="track-note">${emptyMessage || 'Sin lecturas de glucosa en este tramo.'}</div>`;
   }
 
   // padT/padB reserve two marker "lanes" outside the glucose plot area itself
   // (top: insulin/nota, bottom: comidas), on top of the usual axis margins --
   // see diabetesMarkersSvg below for the exact lane geometry.
-  const w = chartWidthFor('glucoseRow'), h = 190, padL = 32, padR = 10, padT = 24, padB = 36;
+  const w = chartWidthFor(containerElId), h = 190, padL = 32, padR = 10, padT = 24, padB = 36;
   const yLo = 40, yHi = 350;
   const x = ts => padL + ((ts - windowStart) / rangeMs) * (w - padL - padR);
   const y = v => padT + (1 - (v - yLo) / (yHi - yLo)) * (h - padT - padB);
@@ -2073,7 +2112,7 @@ function buildTodayGlucoseChart(glucose) {
   // ---- Franjas de sueño (DATA.daily) y actividades (DATA.activities) ----
   function bandRect(startMs, endMs, color, opacity) {
     const x0 = clampX(x(Math.max(startMs, windowStart)));
-    const x1 = clampX(x(Math.min(endMs, nowMs)));
+    const x1 = clampX(x(Math.min(endMs, windowEnd)));
     if (x1 - x0 < 1) return { svg: '', x0, x1 };
     const svg = `<rect x="${x0.toFixed(1)}" y="${padT}" width="${(x1 - x0).toFixed(1)}" height="${(h - padT - padB).toFixed(1)}" fill="${color}" opacity="${opacity}"/>`;
     return { svg, x0, x1 };
@@ -2094,14 +2133,14 @@ function buildTodayGlucoseChart(glucose) {
   (DATA.daily || []).forEach(d => {
     const s = Number(d.sleep_start_ts), e = Number(d.sleep_end_ts);
     if (!s || !e || e <= s) return;
-    if (e < windowStart || s > nowMs) return;
+    if (e < windowStart || s > windowEnd) return;
     bands.push({ start: s, end: e, kind: 'sleep', color: 'var(--sleep)', label: `🌙 ${fmtBandDur((e - s) / 60000)}` });
   });
   DATA.activities.forEach(a => {
     const s = glucoseActivityStartMs(a);
     if (s == null) return;
     const e = s + (Number(a.duration_min) || 0) * 60000;
-    if (e <= s || e < windowStart || s > nowMs) return;
+    if (e <= s || e < windowStart || s > windowEnd) return;
     const meta = CAT_META[a.type] || { icon: '📍', color: 'var(--text-muted)' };
     bands.push({ start: s, end: e, kind: 'activity', color: meta.color, a, label: `${meta.icon} ${a.name || meta.label || ''} · ${fmtBandDur(a.duration_min)}` });
   });
@@ -2117,7 +2156,7 @@ function buildTodayGlucoseChart(glucose) {
   // trazado (h-padB) y la fila de horas del eje X, que vive más abajo todavía.
   const TOP_LANE_Y = padT - 8, TOP_LANE_STEP = 10;
   const BOTTOM_LANE_Y = h - padB + 8, BOTTOM_LANE_STEP = 10;
-  const diabetesRaw = (diabetesLogDocs || []).filter(e => e && e.ts >= windowStart && e.ts <= nowMs).map(e => {
+  const diabetesRaw = (diabetesEntries || []).filter(e => e && e.ts >= windowStart && e.ts <= windowEnd).map(e => {
     let zone, icon, kind, text;
     if (e.type === 'meal') { zone = 'bottom'; icon = '🍽️'; kind = 'meal'; text = e.carbs_g != null ? `${fmt(e.carbs_g,0)} g` : ''; }
     else if (e.type === 'insulin' && e.insulin_type === 'toujeo') { zone = 'top'; icon = ''; kind = 'basal'; text = `Toujeo${e.insulin_units != null ? ' ' + fmt(e.insulin_units,0) + 'u' : ''}`; }
@@ -2151,7 +2190,7 @@ function buildTodayGlucoseChart(glucose) {
     else cur.push(sorted[i]);
   }
   runs.push(cur);
-  const hasGap = runs.length > 1 || (nowMs - sorted[sorted.length-1][0] > GLUCOSE_CHART_GAP_MS) || (sorted[0][0] - windowStart > GLUCOSE_CHART_GAP_MS);
+  const hasGap = runs.length > 1 || (windowEnd - sorted[sorted.length-1][0] > GLUCOSE_CHART_GAP_MS) || (sorted[0][0] - windowStart > GLUCOSE_CHART_GAP_MS);
 
   function crossing(p1, p2, threshold) {
     const [t1, v1] = p1, [t2, v2] = p2;
@@ -2173,17 +2212,21 @@ function buildTodayGlucoseChart(glucose) {
   });
   const lineSvg = lineParts.join('');
 
-  // ---- Marcador del valor actual + flecha de tendencia ----
+  // ---- Marcador del valor actual + flecha de tendencia (solo "Hoy") ----
   const lastPt = sorted[sorted.length-1];
-  const latest = glucose.latest;
-  const markerSvg = `<circle cx="${x(lastPt[0]).toFixed(1)}" cy="${y(lastPt[1]).toFixed(1)}" r="4.5" fill="var(--surface-card)" stroke="${glucoseLineColor(lastPt[1])}" stroke-width="2.5"/>`;
-  const trendSvg = latest ? `<text x="${(x(lastPt[0])+9).toFixed(1)}" y="${(y(lastPt[1])+4).toFixed(1)}" font-size="13" fill="${glucoseLineColor(lastPt[1])}">${latest.trend_arrow}</text>` : '';
+  const markerSvg = opts.showTrend ? `<circle cx="${x(lastPt[0]).toFixed(1)}" cy="${y(lastPt[1]).toFixed(1)}" r="4.5" fill="var(--surface-card)" stroke="${glucoseLineColor(lastPt[1])}" stroke-width="2.5"/>` : '';
+  const trendSvg = (opts.showTrend && opts.latest) ? `<text x="${(x(lastPt[0])+9).toFixed(1)}" y="${(y(lastPt[1])+4).toFixed(1)}" font-size="13" fill="${glucoseLineColor(lastPt[1])}">${opts.latest.trend_arrow}</text>` : '';
 
-  // ---- Eje X: horas en Europe/Madrid, cada 4h (24h) o 2h (12h) ----
-  const xStepH = glucoseChartRangeHours > 12 ? 4 : 2;
-  const xStepMs = xStepH * 3600000;
-  const xTicks = [];
-  for (let t = Math.ceil(windowStart / xStepMs) * xStepMs; t <= nowMs; t += xStepMs) xTicks.push(t);
+  // ---- Eje X: horas en Europe/Madrid -- opts.xTicks explícito (días del
+  // informe: 00/04/08/.../24 exactos, ver buildGlucoseDayChart) o generado
+  // cada opts.xStepH horas desde windowStart (Hoy, donde el inicio no cae en
+  // una hora redonda de reloj). ----
+  const xTicks = opts.xTicks || (() => {
+    const xStepMs = (opts.xStepH || 4) * 3600000;
+    const ticks = [];
+    for (let t = Math.ceil(windowStart / xStepMs) * xStepMs; t <= windowEnd; t += xStepMs) ticks.push(t);
+    return ticks;
+  })();
   const xAxisSvg = xTicks.map(t => `<text x="${x(t).toFixed(1)}" y="${h-6}" text-anchor="middle" font-size="9.5" fill="var(--text-muted)">${GLUCOSE_MADRID_FMT_HOUR.format(new Date(t))}</text>`).join('');
 
   const legendBits = [
@@ -2197,13 +2240,14 @@ function buildTodayGlucoseChart(glucose) {
   if (topMarkers.some(m => m.kind === 'basal')) legendBits.push(`<span><span class="sw" style="background:var(--text-secondary)"></span>Insulina basal</span>`);
 
   const chartId = 'tg' + Math.random().toString(36).slice(2,8);
-  const html = `<div class="glucose-chart-wrap">
-    <div class="glucose-chart-head">
+  const rangeToggleSvg = opts.showRangeToggle ? `<div class="glucose-chart-head">
       <div class="act-filter-tabs" id="${chartId}-range">
-        <button type="button" class="act-filter-tab${glucoseChartRangeHours===12?' active':''}" data-hours="12">12h</button>
-        <button type="button" class="act-filter-tab${glucoseChartRangeHours===24?' active':''}" data-hours="24">24h</button>
+        <button type="button" class="act-filter-tab${opts.rangeHours===12?' active':''}" data-hours="12">12h</button>
+        <button type="button" class="act-filter-tab${opts.rangeHours===24?' active':''}" data-hours="24">24h</button>
       </div>
-    </div>
+    </div>` : '';
+  const html = `<div class="glucose-chart-wrap">
+    ${rangeToggleSvg}
     <div class="act-chart-info" id="${chartId}-tip">Pasa el cursor o el dedo por el gráfico para ver cada lectura</div>
     <svg viewBox="0 0 ${w} ${h}" id="${chartId}">
       ${bandSvg}${bandsSvg}${refSvg}${lineSvg}${markerSvg}${trendSvg}${xAxisSvg}${diabetesMarkersSvg}
@@ -2261,18 +2305,124 @@ function buildTodayGlucoseChart(glucose) {
       hl.style.opacity = 0; hd.style.opacity = 0;
       tip.textContent = 'Pasa el cursor o el dedo por el gráfico para ver cada lectura';
     });
-    const rangeEl = document.getElementById(chartId+'-range');
-    if (rangeEl) {
-      rangeEl.addEventListener('click', e => {
-        const btn = e.target.closest('.act-filter-tab');
-        if (!btn) return;
-        glucoseChartRangeHours = Number(btn.dataset.hours);
-        document.getElementById('glucoseRow').innerHTML = buildTodayGlucoseChart(glucose);
-      });
+    if (opts.showRangeToggle) {
+      const rangeEl = document.getElementById(chartId+'-range');
+      if (rangeEl) {
+        rangeEl.addEventListener('click', e => {
+          const btn = e.target.closest('.act-filter-tab');
+          if (!btn || !opts.onRangeChange) return;
+          opts.onRangeChange(Number(btn.dataset.hours));
+        });
+      }
     }
   });
 
   return html;
+}
+
+// Envoltorio fino de renderGlucoseChart para la tarjeta "Hoy": ventana móvil
+// de las últimas glucoseChartRangeHours horas, con el toggle 12h/24h y el
+// valor+flecha de tendencia actuales. El informe mensual usa su propio
+// envoltorio (buildGlucoseDayChart) con una ventana fija de un día.
+function buildTodayGlucoseChart(glucose) {
+  const nowMs = Date.now();
+  return renderGlucoseChart({
+    windowStart: nowMs - glucoseChartRangeHours * 3600000,
+    windowEnd: nowMs,
+    readings: glucose.recent_series,
+    diabetesEntries: diabetesLogDocs,
+    containerElId: 'glucoseRow',
+    emptyMessage: `Sin lecturas de glucosa en las últimas ${glucoseChartRangeHours} h.`,
+    showTrend: true,
+    latest: glucose.latest,
+    showRangeToggle: true,
+    rangeHours: glucoseChartRangeHours,
+    xStepH: glucoseChartRangeHours > 12 ? 4 : 2,
+    onRangeChange: (hours) => {
+      glucoseChartRangeHours = hours;
+      const el = document.getElementById('glucoseRow');
+      if (el) el.innerHTML = buildTodayGlucoseChart(glucose);
+    },
+  });
+}
+
+// ---------- Informe mensual de glucosa: un gráfico de 00h-24h por día,
+// mismo componente/estilo que "Hoy" pero sin trend/toggle y con ticks fijos
+// cada 4h alineados a la medianoche local, en vez del paso relativo a "ahora"
+// que usa buildTodayGlucoseChart. ----------
+function buildGlucoseDayChart(dateStr, dayReadings, dayDiabetesEntries) {
+  const { start, end } = madridDayBounds(dateStr);
+  const xTicks = [0, 4, 8, 12, 16, 20, 24].map(h => start + h * 3600000);
+  return renderGlucoseChart({
+    windowStart: start,
+    windowEnd: end,
+    readings: dayReadings,
+    diabetesEntries: dayDiabetesEntries,
+    containerElId: 'monthReportBody',
+    emptyMessage: 'Sin datos',
+    showTrend: false,
+    showRangeToggle: false,
+    xTicks,
+  });
+}
+
+// Días naturales de un mes 'YYYY-MM': para el mes en curso se corta en el día
+// de hoy (Europe/Madrid), ya que los días futuros nunca tienen lecturas.
+function monthDateList(monthKey) {
+  const [y, m] = monthKey.split('-').map(Number);
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const todayMadrid = madridDateStrFromMs(Date.now());
+  const list = [];
+  for (let d = 1; d <= daysInMonth; d++) {
+    const ds = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    if (ds > todayMadrid) break;
+    list.push(ds);
+  }
+  return list;
+}
+
+// Estadísticas de glucosa/hidratos/insulina sobre un conjunto de días:
+// con un solo dateStr (el informe por día) las "medias" de hidratos/insulina
+// son directamente el total de ese día, ya que se dividen entre 1 día.
+function computeMonthStats(dateStrings, readings, diabetesEntries) {
+  const vals = (readings || []).map(p => p[1]);
+  const n = vals.length;
+  const avg = n ? vals.reduce((a, b) => a + b, 0) / n : null;
+  const inRange = n ? vals.filter(v => v >= 70 && v <= 180).length / n * 100 : null;
+  const below = n ? vals.filter(v => v < 70).length / n * 100 : null;
+  const above = n ? vals.filter(v => v > 180).length / n * 100 : null;
+
+  let hypoCount = 0, wasLow = false;
+  (readings || []).slice().sort((a, b) => a[0] - b[0]).forEach(p => {
+    const low = p[1] < 70;
+    if (low && !wasLow) hypoCount++;
+    wasLow = low;
+  });
+
+  const gmi = avg != null ? 3.31 + 0.02392 * avg : null;
+  let cv = null;
+  if (n > 1 && avg) {
+    const variance = vals.reduce((a, b) => a + (b - avg) * (b - avg), 0) / n;
+    cv = Math.sqrt(variance) / avg * 100;
+  }
+
+  const daysWithData = new Set((readings || []).map(p => madridDateStrFromMs(p[0]))).size;
+  const dateSet = new Set(dateStrings);
+  const runDates = new Set(DATA.activities.filter(a => a.type === 'running' && dateSet.has(a.date)).map(a => a.date));
+  const strengthDates = new Set(DATA.activities.filter(a => a.type === 'strength_training' && dateSet.has(a.date)).map(a => a.date));
+
+  const carbsByDay = {}, insulinByDay = {};
+  (diabetesEntries || []).forEach(e => {
+    const d = madridDateStrFromMs(e.ts);
+    if (e.type === 'meal' && e.carbs_g != null) carbsByDay[d] = (carbsByDay[d] || 0) + Number(e.carbs_g);
+    if (e.type === 'insulin' && e.insulin_type !== 'toujeo' && e.insulin_units != null) insulinByDay[d] = (insulinByDay[d] || 0) + Number(e.insulin_units);
+  });
+  const carbVals = Object.values(carbsByDay), insulinVals = Object.values(insulinByDay);
+  const avgCarbs = carbVals.length ? carbVals.reduce((a, b) => a + b, 0) / carbVals.length : null;
+  const avgInsulin = insulinVals.length ? insulinVals.reduce((a, b) => a + b, 0) / insulinVals.length : null;
+
+  return { avg, inRange, below, above, hypoCount, gmi, cv, daysWithData, totalDays: dateStrings.length,
+    daysWithRun: runDates.size, daysWithStrength: strengthDates.size, avgCarbs, avgInsulin };
 }
 
 function renderTodayCard(todaySession) {
@@ -2557,8 +2707,8 @@ renderTodayCard(null); // render immediately with defaults so the page is never 
 
     // Registro de comidas/insulina que Claude escribe directamente en esta
     // colección cuando se lo cuentas por chat -- últimas 48h para el gráfico
-    // de "Hoy" (24h/12h); el informe mensual, cuando exista, haría su propia
-    // consulta por mes igual que coach_sessions arriba.
+    // de "Hoy" (24h/12h). El informe mensual (IIFE de abajo) hace su propia
+    // consulta por rango de mes, independiente de esta.
     const diabetesCutoff = Date.now() - 48 * 3600000;
     db.collection('diabetes_log').where('ts', '>=', diabetesCutoff).orderBy('ts', 'asc').limit(200).onSnapshot(
       (snap) => {
@@ -2569,6 +2719,149 @@ renderTodayCard(null); // render immediately with defaults so the page is never 
         }
       },
       (err) => console.error('diabetes_log onSnapshot error', err)
+    );
+  })();
+})();
+
+// ---------- Informe mensual de glucosa ----------
+(function () {
+  const detailsEl = document.getElementById('monthlyReportDetails');
+  const bodyEl = document.getElementById('monthReportBody');
+  const tabsEl = document.getElementById('monthReportTabs');
+  const printBtn = document.getElementById('monthReportPrintBtn');
+  if (!detailsEl || !bodyEl) return;
+
+  const nowMadridStr = madridDateStrFromMs(Date.now());
+  const [curY, curM] = nowMadridStr.split('-').map(Number);
+  let prevY = curY, prevM = curM - 1;
+  if (prevM < 1) { prevM = 12; prevY = curY - 1; }
+  const CUR_MONTH_KEY = `${curY}-${String(curM).padStart(2, '0')}`;
+  const PREV_MONTH_KEY = `${prevY}-${String(prevM).padStart(2, '0')}`;
+  const RANGE_START_MS = madridDayStartMs(`${prevY}-${String(prevM).padStart(2, '0')}-01`);
+
+  let selectedMonth = 'current';
+  let loaded = false;
+  let monthReadings = [];
+  let diabetesDocs = [];
+
+  function monthKey() { return selectedMonth === 'current' ? CUR_MONTH_KEY : PREV_MONTH_KEY; }
+
+  function renderPlaceholder(msg) {
+    bodyEl.innerHTML = `<div class="track-note">${msg}</div>`;
+  }
+
+  function renderReport() {
+    const dateStrings = monthDateList(monthKey());
+    const dateSet = new Set(dateStrings);
+    const monthReadingsFiltered = monthReadings.filter(p => dateSet.has(madridDateStrFromMs(p[0])));
+    const monthDiabetesFiltered = diabetesDocs.filter(e => dateSet.has(madridDateStrFromMs(e.ts)));
+    const s = computeMonthStats(dateStrings, monthReadingsFiltered, monthDiabetesFiltered);
+
+    const summaryHtml = `<div class="month-summary-wrap">
+      <div class="month-summary-grid">
+        <div class="ms-item"><div class="ms-v">${fmt(s.avg, 0)}</div><div class="ms-l">Media (mg/dL)</div></div>
+        <div class="ms-item"><div class="ms-v">${s.inRange != null ? fmt(s.inRange, 0) + '%' : '—'}</div><div class="ms-l">Tiempo en rango 70–180</div></div>
+        <div class="ms-item"><div class="ms-v">${s.below != null ? fmt(s.below, 0) + '%' : '—'}</div><div class="ms-l">Por debajo de 70</div></div>
+        <div class="ms-item"><div class="ms-v">${s.above != null ? fmt(s.above, 0) + '%' : '—'}</div><div class="ms-l">Por encima de 180</div></div>
+        <div class="ms-item"><div class="ms-v">${s.hypoCount}</div><div class="ms-l">Hipoglucemias</div></div>
+        <div class="ms-item"><div class="ms-v">${s.gmi != null ? fmt(s.gmi, 1) + '%' : '—'}</div><div class="ms-l">GMI (HbA1c estimada)</div></div>
+        <div class="ms-item"><div class="ms-v">${s.cv != null ? fmt(s.cv, 0) + '%' : '—'}</div><div class="ms-l">Coef. de variación</div></div>
+        <div class="ms-item"><div class="ms-v">${s.daysWithData}/${s.totalDays}</div><div class="ms-l">Días con datos</div></div>
+        <div class="ms-item"><div class="ms-v">${s.daysWithRun}</div><div class="ms-l">Días con carrera</div></div>
+        <div class="ms-item"><div class="ms-v">${s.daysWithStrength}</div><div class="ms-l">Días con fuerza</div></div>
+        <div class="ms-item"><div class="ms-v">${s.avgCarbs != null ? fmt(s.avgCarbs, 0) : '—'}</div><div class="ms-l">Hidratos/día (media)</div></div>
+        <div class="ms-item"><div class="ms-v">${s.avgInsulin != null ? fmt(s.avgInsulin, 0) : '—'}</div><div class="ms-l">Insulina rápida/día (media)</div></div>
+      </div>
+    </div>`;
+
+    const daysHtml = dateStrings.map(ds => {
+      const { start, end } = madridDayBounds(ds);
+      const dayReadings = monthReadings.filter(p => p[0] >= start && p[0] < end);
+      const dayDiabetes = diabetesDocs.filter(e => e.ts >= start && e.ts < end);
+      const hasData = dayReadings.length > 0;
+      const chartHtml = hasData
+        ? buildGlucoseDayChart(ds, dayReadings, dayDiabetes)
+        : `<div class="track-note month-day-empty">Sin datos</div>`;
+      let dayStatsHtml = '';
+      if (hasData) {
+        const ds2 = computeMonthStats([ds], dayReadings, dayDiabetes);
+        dayStatsHtml = `<div class="month-day-stats">
+          <span>Media: ${fmt(ds2.avg, 0)} mg/dL</span>
+          <span>TIR: ${ds2.inRange != null ? fmt(ds2.inRange, 0) + '%' : '—'}</span>
+          <span>Hipos: ${ds2.hypoCount}</span>
+          <span>Hidratos: ${ds2.avgCarbs != null ? fmt(ds2.avgCarbs, 0) + ' g' : '—'}</span>
+          <span>Insulina rápida: ${ds2.avgInsulin != null ? fmt(ds2.avgInsulin, 0) + ' u' : '—'}</span>
+        </div>`;
+      }
+      return `<div class="month-day-block">
+        <div class="month-day-head">${fmtDateShort(ds)}</div>
+        ${chartHtml}
+        ${dayStatsHtml}
+      </div>`;
+    }).join('');
+
+    bodyEl.innerHTML = summaryHtml + `<div class="month-days-list">${daysHtml}</div>`;
+  }
+
+  function ensureLoaded() {
+    if (loaded) { renderReport(); return; }
+    renderPlaceholder('Cargando informe mensual…');
+    fetch('glucose_month.json').then(r => r.ok ? r.json() : []).then(data => {
+      monthReadings = data || [];
+      loaded = true;
+      renderReport();
+    }).catch(() => {
+      monthReadings = [];
+      loaded = true;
+      renderPlaceholder('No se ha podido cargar el informe mensual.');
+    });
+  }
+
+  detailsEl.addEventListener('toggle', () => {
+    if (detailsEl.open) ensureLoaded();
+  });
+
+  if (tabsEl) {
+    tabsEl.addEventListener('click', (e) => {
+      const btn = e.target.closest('.act-filter-tab');
+      if (!btn) return;
+      selectedMonth = btn.dataset.month;
+      Array.prototype.forEach.call(tabsEl.querySelectorAll('.act-filter-tab'), b => b.classList.toggle('active', b === btn));
+      if (loaded) renderReport();
+    });
+  }
+
+  if (printBtn) {
+    printBtn.addEventListener('click', () => {
+      if (!detailsEl.open) detailsEl.open = true;
+      ensureLoaded();
+      window.print();
+    });
+  }
+
+  // El resto del dashboard se oculta en impresión vía CSS (@media print) --
+  // aquí solo hace falta asegurar que ESTA sección imprime desplegada aunque
+  // en pantalla esté plegada, y devolverla a como estaba después.
+  let wasOpenBeforePrint = true;
+  window.addEventListener('beforeprint', () => {
+    wasOpenBeforePrint = detailsEl.open;
+    if (!detailsEl.open) detailsEl.open = true;
+  });
+  window.addEventListener('afterprint', () => {
+    if (!wasOpenBeforePrint) detailsEl.open = false;
+  });
+
+  (async function initDb() {
+    if (!window.claude) return;
+    let db = null;
+    try { db = await window.claude.use('db'); } catch (e) {}
+    if (!db) return;
+    db.collection('diabetes_log').where('ts', '>=', RANGE_START_MS).orderBy('ts', 'asc').limit(1000).onSnapshot(
+      (snap) => {
+        diabetesDocs = snap.docs.map(d => d.data());
+        if (loaded) renderReport();
+      },
+      (err) => console.error('diabetes_log (informe mensual) onSnapshot error', err)
     );
   })();
 })();

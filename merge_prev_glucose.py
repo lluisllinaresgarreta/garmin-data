@@ -30,15 +30,27 @@ that buffer is written into glucose.json's own "recent_series" (what
 actually reaches data.json), since the chart itself never shows more than
 24h and there's no reason to ship a heavier payload than the page uses.
 
+glucose_month.json (current calendar month + previous one, Europe/Madrid)
+is the same exact-timestamp-dedup merge, but published as its OWN file
+(data/glucose_month.json) instead of living inside glucose.json/data.json --
+the monthly report is a separate, lazily-fetched page concern (see
+extract_prev_glucose_month.py, which is what feeds this script its prior
+state: that script reads the PUBLISHED glucose_month.json, since it isn't
+nested inside data.json the way night_series/recent_series's own prior state
+is).
+
 Uso:
     python merge_prev_glucose.py [<prev_glucose_activities.json>]
 """
 import json
 import sys
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).parent
+MADRID_TZ = ZoneInfo("Europe/Madrid")
 
 CHART_PRE_MIN = 30
 CHART_POST_H = 2
@@ -46,6 +58,14 @@ CHART_EDGE_TOLERANCE_MIN = 20
 NIGHT_SERIES_KEEP = 14
 RECENT_SERIES_KEEP_HOURS = 48
 RECENT_SERIES_PUBLISH_HOURS = 24
+
+
+def _prev_month_start_ms(now_ms):
+    now_local = datetime.fromtimestamp(now_ms / 1000, tz=MADRID_TZ)
+    first_of_this_month = now_local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    last_day_prev_month = first_of_this_month - timedelta(days=1)
+    prev_month_start = last_day_prev_month.replace(day=1)
+    return int(prev_month_start.timestamp() * 1000)
 
 
 def _has_data(entry) -> bool:
@@ -123,20 +143,25 @@ def _merge_night(fresh, cached):
     }
 
 
-def _merge_recent(fresh, cached, now_ms, keep_hours):
+def _merge_series_since(fresh, cached, since_ms, now_ms):
+    """Exact-timestamp dedup merge of [ts_ms, value] pairs (fresh wins on a
+    collision), kept from since_ms through now_ms. Used both for the 48h
+    recent_series working buffer (since_ms = now - keep_hours) and for the
+    current+previous-month glucose_month.json buffer (since_ms = start of
+    the previous calendar month) -- same merge, different cutoff."""
     by_ts = {p[0]: p[1] for p in (cached or [])}
     for p in (fresh or []):
         by_ts[p[0]] = p[1]  # fresh wins on an exact-timestamp collision
-    cutoff = now_ms - keep_hours * 3600_000
-    merged = sorted([ts, v] for ts, v in by_ts.items() if ts >= cutoff and ts <= now_ms)
-    return merged
+    return sorted([ts, v] for ts, v in by_ts.items() if since_ms <= ts <= now_ms)
 
 
 def main():
     prev_path = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "data" / "prev_glucose_activities.json"
     prev_nights_path = ROOT / "data" / "prev_glucose_nights.json"
     prev_recent_path = ROOT / "data" / "prev_glucose_recent.json"
+    prev_month_path = ROOT / "data" / "prev_glucose_month.json"
     recent_out_path = ROOT / "data" / "glucose_recent.json"
+    month_out_path = ROOT / "data" / "glucose_month.json"
     glucose_path = ROOT / "data" / "glucose.json"
 
     if not glucose_path.exists():
@@ -186,15 +211,26 @@ def main():
     if not prev_recent_path.exists():
         print(f"No existe {prev_recent_path} -- nada previo de lecturas recientes que conservar.")
     fresh_recent = glucose.get("recent_series") or []
-    working_buffer = _merge_recent(fresh_recent, prev_recent, now_ms, RECENT_SERIES_KEEP_HOURS)
+    working_buffer = _merge_series_since(fresh_recent, prev_recent, now_ms - RECENT_SERIES_KEEP_HOURS * 3600_000, now_ms)
     recent_out_path.write_text(json.dumps(working_buffer, ensure_ascii=False), encoding="utf-8")
     publish_cutoff = now_ms - RECENT_SERIES_PUBLISH_HOURS * 3600_000
     glucose["recent_series"] = [p for p in working_buffer if p[0] >= publish_cutoff]
+
+    # glucose_month.json: mismo mecanismo, pero el "fresco" de esta sincronizacion
+    # es el MISMO fresh_recent de arriba (la ventana que esta corrida realmente
+    # vio) y lo previo viene de extract_prev_glucose_month.py (lee el
+    # glucose_month.json YA PUBLICADO, porque no vive dentro de data.json).
+    prev_month = json.loads(prev_month_path.read_text(encoding="utf-8")) if prev_month_path.exists() else []
+    if not prev_month_path.exists():
+        print(f"No existe {prev_month_path} -- nada previo del informe mensual que conservar.")
+    month_buffer = _merge_series_since(fresh_recent, prev_month, _prev_month_start_ms(now_ms), now_ms)
+    month_out_path.write_text(json.dumps(month_buffer, ensure_ascii=False), encoding="utf-8")
 
     glucose_path.write_text(json.dumps(glucose, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"Fusionadas/restauradas {touched} actividad(es) con datos previos de glucosa.")
     print(f"night_series: {nights_kept} noche(s) conservadas (maximo {NIGHT_SERIES_KEEP}).")
     print(f"recent_series: {len(working_buffer)} lectura(s) en el buffer de {RECENT_SERIES_KEEP_HOURS}h, {len(glucose['recent_series'])} publicadas (ultimas {RECENT_SERIES_PUBLISH_HOURS}h) -> {recent_out_path}")
+    print(f"glucose_month: {len(month_buffer)} lectura(s) (mes en curso + mes anterior) -> {month_out_path}")
 
 
 if __name__ == "__main__":

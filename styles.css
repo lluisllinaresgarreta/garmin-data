@@ -99,7 +99,8 @@
     .wrap > footer.note { column-span: all; }
     .wrap > section.card { display: inline-block; width: 100%; break-inside: avoid; margin-bottom: 24px; }
     .wrap > section.today-card,
-    .wrap > section.coach-card { column-span: all; display: block; }
+    .wrap > section.coach-card,
+    .wrap > section#monthlyReportCard { column-span: all; display: block; }
     .wrap > header.top { margin-bottom: 28px; }
     .wrap > section.tiles { margin-bottom: 28px; }
   }
@@ -378,6 +379,38 @@
   .glucose-chart-head .act-filter-tab { padding: 5px 11px; font-size: 11px; }
 
   .activity-glucose { font-size: 11.5px; color: var(--text-secondary); margin-top: 4px; }
+
+  /* Informe mensual de glucosa */
+  .month-report-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .month-report-head .act-filter-tabs { margin-bottom: 0; }
+  .month-print-btn {
+    font: inherit; font-size: 12px; font-weight: 600; color: var(--text-secondary);
+    background: var(--surface-sunken); border: 1px solid var(--border-strong); border-radius: 999px;
+    padding: 7px 14px; cursor: pointer; transition: background 0.12s, color 0.12s;
+  }
+  .month-print-btn:hover { background: var(--surface-card); color: var(--text-primary); }
+  .month-summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 22px; }
+  @media (max-width: 760px) { .month-summary-grid { grid-template-columns: repeat(2, 1fr); } }
+  .ms-item { background: var(--surface-sunken); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .ms-item .ms-v { font-size: 18px; font-weight: 700; font-family: "Bricolage Grotesque", system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+  .ms-item .ms-l { font-size: 10.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-top: 2px; }
+  .month-days-list { display: flex; flex-direction: column; gap: 18px; }
+  .month-day-block { padding-top: 14px; border-top: 1px solid var(--border); }
+  .month-day-block:first-child { padding-top: 0; border-top: none; }
+  .month-day-head { font-size: 13px; font-weight: 700; margin-bottom: 8px; }
+  .month-day-empty { background: var(--surface-sunken); border: 1px dashed var(--border); border-radius: 10px; padding: 24px; text-align: center; margin: 0; }
+  .month-day-stats { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 11.5px; color: var(--text-secondary); margin-top: 6px; }
+
+  @media print {
+    body { background: #fff; }
+    .wrap > *:not(#monthlyReportCard) { display: none !important; }
+    #monthlyReportCard { box-shadow: none; border: none; padding: 0; column-span: all; break-inside: auto; }
+    #monthlyReportCard .month-print-btn { display: none; }
+    #monthlyReportCard details summary::after { display: none; }
+    .month-summary-wrap { break-after: page; page-break-after: always; }
+    .month-day-block { break-inside: avoid; page-break-inside: avoid; border-top: none; padding-top: 0; margin-bottom: 14px; }
+    .month-day-block:nth-of-type(3n) { break-after: page; page-break-after: always; }
+  }
 
   /* Activity detail (expandable) */
   .act-detail { padding: 2px 0 16px 46px; }

@@ -2098,7 +2098,7 @@ function renderGlucoseChart(opts) {
   // padT/padB reserve two marker "lanes" outside the glucose plot area itself
   // (top: insulin/nota, bottom: comidas), on top of the usual axis margins --
   // see diabetesMarkersSvg below for the exact lane geometry.
-  const w = chartWidthFor(containerElId), h = 190, padL = 32, padR = 10, padT = 24, padB = 36;
+  const w = chartWidthFor(containerElId), h = 230, padL = 32, padR = 10, padT = 24, padB = 36;
   const yLo = 40, yHi = 350;
   const x = ts => padL + ((ts - windowStart) / rangeMs) * (w - padL - padR);
   const y = v => padT + (1 - (v - yLo) / (yHi - yLo)) * (h - padT - padB);

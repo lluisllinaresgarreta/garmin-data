@@ -2846,7 +2846,17 @@ renderTodayCard(null); // render immediately with defaults so the page is never 
       // antes de abrir el diálogo de impresión -- si no, se imprimía el
       // mensaje de "Cargando..." en vez del contenido real.
       ensureLoaded().then(() => {
-        requestAnimationFrame(() => window.print());
+        requestAnimationFrame(() => {
+          try {
+            window.print();
+          } catch (e) {
+            // Algunos visores (p.ej. el panel de Artifacts embebido) pueden
+            // bloquear window.print() sin avisar -- si pasa, al menos se ve
+            // un mensaje en vez de que el botón no haga nada en absoluto.
+            console.error('window.print() failed', e);
+            bodyEl.insertAdjacentHTML('afterbegin', '<div class="track-note" style="color:var(--critical);">No se pudo abrir el diálogo de impresión aquí. Abre el enlace del dashboard en su propia pestaña del navegador (fuera del chat) e inténtalo de nuevo.</div>');
+          }
+        });
       });
     });
   }

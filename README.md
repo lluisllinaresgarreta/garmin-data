@@ -12,20 +12,24 @@ python fetch_garmin_data.py --days 90
 python fetch_libre_data.py
 python fetch_hevy_exercises.py
 python build_combined.py
-python render_dashboard.py
+python merge_recent_history.py <data.json-publicado-o-vacio-la-primera-vez>
 ```
 
 Genera `data/*.csv`/`*.json` y, al final, `data.json` en la raíz (los datos que
-consume el dashboard). `dashboard.html`/`app.js`/`styles.css` son el código y el
-diseño del panel — no cambian con una sincronización normal, solo `data.json`.
+consume el dashboard) — `merge_recent_history.py` es el paso final tanto en
+local como en las rutinas en la nube. `dashboard.html`/`app.js`/`styles.css`
+son el código y el diseño del panel — no cambian con una sincronización
+normal, solo `data.json` (y `glucose_month.json`, ver más abajo).
 
 ## Arquitectura del dashboard
 
-El Artifact publicado tiene 4 archivos:
+El Artifact publicado tiene 5 archivos:
 - `index.html` (local: `dashboard.html`) — estructura, sin datos ni estilos inline.
 - `app.js` — todo el JS, envuelto en `main(DATA)`, invocado tras `fetch('data.json')`.
 - `styles.css` — todo el CSS.
-- `data.json` — los datos. Es el único archivo que toca una sincronización normal.
+- `data.json` — los datos. Es el archivo que toca una sincronización normal.
+- `glucose_month.json` — buffer del informe mensual de glucosa (ver más abajo),
+  cargado solo cuando se abre esa sección, no al cargar el dashboard.
 
 ## Sincronización rápida incremental
 
@@ -48,6 +52,11 @@ eso:
 - `extract_prev_glucose.py` / `merge_prev_glucose.py` conservan la correlación de
   glucosa por actividad que LibreLinkUp ya no puede recalcular (ventana móvil de
   ~12h) entre sincronizaciones.
+- `patch_glucose.py` también mantiene `glucose_month.json` al día (ver la sección
+  del informe mensual) usando `data/prev_glucose_month.json`, el mismo
+  intermedio que escribe `extract_prev_glucose_month.py` para la sincronización
+  completa -- así el informe se beneficia de cada sincronización de glucosa, no
+  solo de las 2 completas al día.
 
 ## Curva de glucosa nocturna (`glucose.night_series`)
 
@@ -130,9 +139,42 @@ arriba):
 ArtifactData action="set" collection="diabetes_log" doc_id="d_1762784400000_a1"
   data={"ts": 1762784400000, "type": "meal", "carbs_g": 65, "label": "Pasta con pollo"}
 ```
-El informe mensual de glucosa, cuando exista, reutilizaría la misma colección
-con su propia consulta por rango de mes (igual que `coach_sessions` ya hace
-semana vs. mes) -- de momento solo el gráfico de "Hoy" (24h/12h) la consume.
+El informe mensual de glucosa (ver sección siguiente) reutiliza la misma
+colección con su propia consulta por rango de mes (igual que `coach_sessions`
+ya hace semana vs. mes), independiente de la suscripción de 48h que usa la
+tarjeta "Hoy".
+
+## Informe mensual de glucosa
+
+Sección plegable al final del dashboard, pensada para imprimir/guardar como
+PDF y llevar al endocrino: resumen del mes (media, tiempo en rango 70-180,
+%&lt;70, %&gt;180, hipoglucemias, GMI, coeficiente de variación, días con
+datos/carrera/fuerza, hidratos e insulina rápida media por día) y un gráfico
+de 00h-24h por día, con el mismo componente/estilo que la tarjeta "Hoy"
+(`renderGlucoseChart()` en `app.js`, generalizado para servir a ambos:
+`buildTodayGlucoseChart()` para "Hoy", `buildGlucoseDayChart()` para cada día
+del informe).
+
+Datos, sin llamadas nuevas a Garmin/LibreLinkUp:
+- **`glucose_month.json`**: lecturas `[timestamp_ms, mg/dL]` del mes en curso
+  + el anterior completo, publicado como archivo *separado* de `data.json` y
+  descargado por el dashboard solo al desplegar la sección (carga diferida).
+  Lo mantienen al día `merge_prev_glucose.py` (sync completo, 2x/día) y
+  `patch_glucose.py` (sync de glucosa, varias veces al día) -- ambos leen
+  `data/prev_glucose_month.json` (escrito por `extract_prev_glucose_month.py`,
+  que lee lo que ya estaba publicado) y fusionan por timestamp exacto, igual
+  que `recent_series`.
+- **Sueño/actividades**: mismos campos que la tarjeta "Hoy"
+  (`daily[].sleep_start_ts/sleep_end_ts`, `activities[]`).
+- **Comidas/insulina**: colección `diabetes_log`, consultada por el rango de
+  fechas del mes seleccionado (no las últimas 48h que usa "Hoy").
+
+Botón "Imprimir / guardar PDF": el visor de Artifacts bloquea
+`window.print()` incluso abierto en su propia pestaña, así que el botón
+genera un HTML autocontenido (con `styles.css` embebido) y lo ofrece para
+descargar via la capacidad `downloads` del artifact -- abierto fuera de
+Claude, ese archivo sí puede imprimirse/guardarse como PDF con el diálogo
+normal del navegador.
 
 ## Fuerza: ejercicios desde Hevy
 
@@ -198,13 +240,14 @@ dashboard actualizado sin depender de ningún PC local:
 
 - **Garmin dashboard refresh** (2x/día + manual): sincronización completa
   (Garmin + Libre + ejercicios exactos de Hevy, ventana adaptativa) y publica
-  solo `data.json`.
-- **Glucosa - sincronizar ahora** (manual): solo glucosa, rápido.
-- **Garmin: reintento sueño/HRV matutino** (horaria 7-11h): reintenta el sueño/VFC
-  de hoy si Garmin aún no lo había subido cuando corrió la sincronización
-  completa; no hace nada si ya está completo.
-- **Hevy → Garmin sync** (horaria): sube a Garmin Connect los entrenos de fuerza
-  registrados en Hevy, fusionados con la FC del reloj.
+  `data.json` + `glucose_month.json`.
+- **Glucosa - sincronizar ahora** (automática varias veces al día + manual):
+  solo glucosa, rápido -- no toca Garmin ni Hevy.
+- **Garmin: reintento sueño/HRV matutino** (horaria, unas horas tras la
+  sincronización completa de la mañana): reintenta el sueño/VFC de hoy si
+  Garmin aún no lo había subido cuando corrió la sincronización completa; no
+  hace nada si ya está completo. Ajustar su cron si cambia la hora de la
+  sincronización completa, para que siga corriendo después y no antes.
 
 Ninguna de las rutinas hace commit/push al repo — solo republican el artifact.
 Las credenciales (`GARMIN_EMAIL`/`GARMIN_PASSWORD`, `LIBRE_EMAIL`/`LIBRE_PASSWORD`,

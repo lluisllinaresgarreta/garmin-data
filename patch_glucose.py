@@ -22,17 +22,44 @@ the overnight curve and the "Hoy" card's glucose chart -- hours/days of
 accumulated history gone the moment someone taps "Sincronizar glucosa" to
 check their level before a run.
 
+glucose_month.json (the monthly report's own published file, see
+merge_prev_glucose.py's docstring for why it lives separately from
+data.json) is ALSO refreshed here now: this routine runs far more often
+than the full sync (8x/day vs 2x/day), so without this the monthly report
+would only ever see the full sync's 2 daily snapshots and miss most of the
+day's readings. Uses data/prev_glucose_month.json (written by running
+extract_prev_glucose_month.py before this script, same as the full sync
+does) as the prior state -- missing/absent is non-fatal, same as there.
+
 Uso:
     python patch_glucose.py <ruta-al-data.json-en-vivo> [<ruta-salida>]
 """
 import json
 import sys
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).parent
+MADRID_TZ = ZoneInfo("Europe/Madrid")
 NIGHT_SERIES_KEEP = 14
 RECENT_SERIES_PUBLISH_HOURS = 24
+
+
+def _prev_month_start_ms(now_ms):
+    now_local = datetime.fromtimestamp(now_ms / 1000, tz=MADRID_TZ)
+    first_of_this_month = now_local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    last_day_prev_month = first_of_this_month - timedelta(days=1)
+    prev_month_start = last_day_prev_month.replace(day=1)
+    return int(prev_month_start.timestamp() * 1000)
+
+
+def _merge_series_since(fresh, cached, since_ms, now_ms):
+    by_ts = {p[0]: p[1] for p in (cached or [])}
+    for p in (fresh or []):
+        by_ts[p[0]] = p[1]  # fresh wins on an exact-timestamp collision
+    return sorted([ts, v] for ts, v in by_ts.items() if since_ms <= ts <= now_ms)
 
 
 def _merge_night(fresh, cached):
@@ -91,12 +118,21 @@ def main():
     data["glucose"]["night_series"] = {d: merged_nights[d] for d in kept_dates}
     data["glucose"]["recent_series"] = merged_recent
 
+    prev_month_path = ROOT / "data" / "prev_glucose_month.json"
+    month_out_path = ROOT / "data" / "glucose_month.json"
+    prev_month = json.loads(prev_month_path.read_text(encoding="utf-8")) if prev_month_path.exists() else []
+    if not prev_month_path.exists():
+        print(f"No existe {prev_month_path} -- nada previo del informe mensual que conservar.")
+    month_buffer = _merge_series_since(fresh_recent, prev_month, _prev_month_start_ms(now_ms), now_ms)
+    month_out_path.write_text(json.dumps(month_buffer, ensure_ascii=False), encoding="utf-8")
+
     out_path.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     g = data["glucose"]
     if g.get("available") and g.get("latest"):
         print(f"Glucosa parcheada: {g['latest']['value_mgdl']} mg/dL ({g['latest']['trend_label']}) a las {g['latest']['time']} -> {out_path}")
     else:
         print(f"Glucosa parcheada (sin lectura disponible: {g.get('reason')}) -> {out_path}")
+    print(f"glucose_month: {len(month_buffer)} lectura(s) (mes en curso + mes anterior) -> {month_out_path}")
 
 
 if __name__ == "__main__":

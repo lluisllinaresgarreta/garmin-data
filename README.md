@@ -124,15 +124,22 @@ milisegundo):
 ```
 {
   ts: <epoch ms>,
-  type: "meal" | "insulin" | "note",
+  type: "meal" | "insulin" | "note" | "bg",
   carbs_g: <número>,           // solo type:"meal"
   label: "<texto corto>",      // solo type:"meal", ej. "Pasta con pollo"
   insulin_units: <número>,     // solo type:"insulin"
   insulin_type: "fiasp" | "toujeo",  // solo type:"insulin" -- toujeo es basal
                                       // y se dibuja distinto (discreto, sin 💉)
+  value_mgdl: <número>,        // solo type:"bg" -- medición capilar (glucómetro)
   note: "<texto opcional>",
 }
 ```
+`type:"bg"` se dibuja distinto del resto: en vez de un carril aparte arriba o
+abajo del gráfico, aparece como un rombo en su posición real del eje Y (el
+valor de `value_mgdl`), coloreado por rango igual que la línea del sensor
+(`glucoseLineColor()`), con etiqueta "🩸 &lt;valor&gt;" al lado. El tooltip
+compara contra la lectura del sensor más cercana en el tiempo (si hay alguna
+a menos de `GLUCOSE_CHART_GAP_MS`), mostrando la diferencia.
 Ejemplo de escritura (desde cualquier conversación, con la URL del artifact de
 arriba):
 ```

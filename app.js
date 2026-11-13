@@ -2163,7 +2163,7 @@ function renderGlucoseChart(opts) {
   // trazado (h-padB) y la fila de horas del eje X, que vive más abajo todavía.
   const TOP_LANE_Y = padT - 8, TOP_LANE_STEP = 10;
   const BOTTOM_LANE_Y = h - padB + 8, BOTTOM_LANE_STEP = 10;
-  const diabetesRaw = (diabetesEntries || []).filter(e => e && e.ts >= windowStart && e.ts <= windowEnd).map(e => {
+  const diabetesRaw = (diabetesEntries || []).filter(e => e && e.type !== 'bg' && e.ts >= windowStart && e.ts <= windowEnd).map(e => {
     let zone, icon, kind, text;
     if (e.type === 'meal') { zone = 'bottom'; icon = '🍽️'; kind = 'meal'; text = e.carbs_g != null ? `${fmt(e.carbs_g,0)} g` : ''; }
     else if (e.type === 'insulin' && e.insulin_type === 'toujeo') { zone = 'top'; icon = ''; kind = 'basal'; text = `Toujeo${e.insulin_units != null ? ' ' + fmt(e.insulin_units,0) + 'u' : ''}`; }
@@ -2186,6 +2186,36 @@ function renderGlucoseChart(opts) {
     return `<line x1="${m.cx.toFixed(1)}" x2="${m.cx.toFixed(1)}" y1="${(cy + (m.zone==='top'?4:-4)).toFixed(1)}" y2="${connectorY2}" stroke="${color}" stroke-width="1" stroke-dasharray="1.5,2" opacity="0.5"/><text x="${m.cx.toFixed(1)}" y="${cy.toFixed(1)}" text-anchor="middle" font-size="${fontSize}" font-weight="${fontWeight}" fill="${color}">${esc(label)}</text>`;
   }
   const diabetesMarkersSvg = topMarkers.concat(bottomMarkers).map(diabetesMarkerSvg).join('');
+
+  // ---- Mediciones capilares (glucómetro, diabetes_log type:"bg") -- se
+  // dibujan EN su valor real del eje Y (no en un carril aparte como
+  // comidas/insulina), para poder compararlas de un vistazo con la línea del
+  // sensor en ese mismo instante. ----
+  const bgMarkers = (diabetesEntries || []).filter(e => e && e.type === 'bg' && e.ts >= windowStart && e.ts <= windowEnd).map(e => ({ e, cx: x(e.ts), cy: y(e.value_mgdl) }));
+  function nearestSensorReadingAt(ts) {
+    let best = null, bestDiff = Infinity;
+    sorted.forEach(p => { const diff = Math.abs(p[0] - ts); if (diff < bestDiff) { bestDiff = diff; best = p; } });
+    return (best && bestDiff <= GLUCOSE_CHART_GAP_MS) ? best : null;
+  }
+  function bgTooltipText(e) {
+    const time = GLUCOSE_MADRID_FMT_TIME.format(new Date(e.ts));
+    const near = nearestSensorReadingAt(e.ts);
+    let extra = '';
+    if (near) {
+      const diff = Math.round(e.value_mgdl - near[1]);
+      extra = ` · Sensor ${fmt(near[1],0)} · ${diff >= 0 ? '+' : '−'}${Math.abs(diff)}`;
+    }
+    return `${time} · Glucómetro ${fmt(e.value_mgdl,0)}${extra}${e.note ? ' · ' + e.note : ''}`;
+  }
+  function bgMarkerSvg(m) {
+    const color = glucoseLineColor(m.e.value_mgdl);
+    const nearRightEdge = m.cx > w - padR - 60;
+    const labelX = nearRightEdge ? m.cx - 10 : m.cx + 10;
+    const anchor = nearRightEdge ? 'end' : 'start';
+    const label = `🩸 ${fmt(m.e.value_mgdl,0)}`;
+    return `<rect x="${(m.cx-5).toFixed(1)}" y="${(m.cy-5).toFixed(1)}" width="10" height="10" fill="${color}" stroke="var(--surface-card)" stroke-width="2" transform="rotate(45 ${m.cx.toFixed(1)} ${m.cy.toFixed(1)})"/><text x="${labelX.toFixed(1)}" y="${(m.cy+3.5).toFixed(1)}" text-anchor="${anchor}" font-size="9.5" font-weight="700" fill="${color}">${esc(label)}</text>`;
+  }
+  const bgMarkersSvg = bgMarkers.map(bgMarkerSvg).join('');
 
   // ---- Línea de glucosa, coloreada por tramo (roja <70, verde 70-180, naranja
   // >180), partida en huecos reales (> GLUCOSE_CHART_GAP_MS sin lectura) en vez
@@ -2246,6 +2276,7 @@ function renderGlucoseChart(opts) {
   if (bottomMarkers.some(m => m.kind === 'meal')) legendBits.push(`<span><span class="sw" style="background:var(--warning)"></span>🍽️ Comida</span>`);
   if (topMarkers.some(m => m.kind === 'rapid')) legendBits.push(`<span><span class="sw" style="background:var(--accent)"></span>💉 Insulina rápida</span>`);
   if (topMarkers.some(m => m.kind === 'basal')) legendBits.push(`<span><span class="sw" style="background:var(--text-secondary)"></span>Insulina basal</span>`);
+  if (bgMarkers.length) legendBits.push(`<span>🩸 Medición capilar (glucómetro)</span>`);
 
   const chartId = 'tg' + Math.random().toString(36).slice(2,8);
   const rangeToggleSvg = opts.showRangeToggle ? `<div class="glucose-chart-head">
@@ -2258,7 +2289,7 @@ function renderGlucoseChart(opts) {
     ${rangeToggleSvg}
     <div class="act-chart-info" id="${chartId}-tip">Pasa el cursor o el dedo por el gráfico para ver cada lectura</div>
     <svg viewBox="0 0 ${w} ${h}" id="${chartId}">
-      ${bandSvg}${bandsSvg}${refSvg}${lineSvg}${markerSvg}${trendSvg}${xAxisSvg}${diabetesMarkersSvg}
+      ${bandSvg}${bandsSvg}${refSvg}${lineSvg}${markerSvg}${trendSvg}${xAxisSvg}${diabetesMarkersSvg}${bgMarkersSvg}
       <line class="chart-hover-line" id="${chartId}-hl" x1="0" x2="0" y1="${padT}" y2="${h-padB}"/>
       <circle class="chart-hover-dot" id="${chartId}-hd" r="4"/>
     </svg>
@@ -2281,7 +2312,11 @@ function renderGlucoseChart(opts) {
       allDiabetesMarkers.forEach(m => {
         const cy = diabetesMarkerY(m);
         const d = Math.hypot(m.cx - relX, cy - relY);
-        if (d < bestD) { bestD = d; hit = { m, cy }; }
+        if (d < bestD) { bestD = d; hit = { m, cy, isBg: false }; }
+      });
+      bgMarkers.forEach(m => {
+        const d = Math.hypot(m.cx - relX, m.cy - relY);
+        if (d < bestD) { bestD = d; hit = { m, cy: m.cy, isBg: true }; }
       });
       return hit;
     }
@@ -2291,11 +2326,11 @@ function renderGlucoseChart(opts) {
       const relY = (clientY - rect.top) / rect.height * h;
       const markerHit = diabetesMarkerAt(relX, relY);
       if (markerHit) {
-        const color = diabetesMarkerColor(markerHit.m.kind);
+        const color = markerHit.isBg ? glucoseLineColor(markerHit.m.e.value_mgdl) : diabetesMarkerColor(markerHit.m.kind);
         hl.setAttribute('x1', markerHit.m.cx); hl.setAttribute('x2', markerHit.m.cx); hl.style.opacity = 1;
         hd.setAttribute('cx', markerHit.m.cx); hd.setAttribute('cy', markerHit.cy); hd.style.opacity = 1;
         hd.style.stroke = color;
-        tip.textContent = diabetesTooltipText(markerHit.m.e);
+        tip.textContent = markerHit.isBg ? bgTooltipText(markerHit.m.e) : diabetesTooltipText(markerHit.m.e);
         return;
       }
       let best = sorted[0], bestDiff = Infinity;

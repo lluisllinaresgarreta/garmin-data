@@ -2079,21 +2079,27 @@ function glucoseActivityStartMs(a) {
 // componente exacto, solo cambia la ventana temporal y algunos extras
 // (selector 12h/24h y marcador de "ahora" son solo de Hoy).
 //
+// Se dibuja SIEMPRE -- ejes, banda 70-180, franjas de sueño/actividad y
+// marcadores de diabetes_log -- aunque `readings` esté vacío (p.ej.
+// LibreLinkUp caído): solo la línea del sensor, el hueco y el marcador de
+// tendencia dependen de haber lecturas; el resto no.
+//
 // opts:
-//   windowStart, windowEnd (ms), readings ([ts,val][]), diabetesEntries
-//   (diabetes_log docs sin filtrar -- se filtran aquí por ventana),
-//   containerElId (para chartWidthFor), emptyMessage,
+//   windowStart, windowEnd (ms), readings ([ts,val][], puede venir vacío o
+//   undefined), diabetesEntries (diabetes_log docs sin filtrar -- se filtran
+//   aquí por ventana), containerElId (para chartWidthFor),
 //   showRangeToggle/rangeHours (Hoy), showTrend/latest (Hoy),
 //   xTicks (array de ms explícito; si no se da, se genera cada xStepH horas).
 function renderGlucoseChart(opts) {
-  const { windowStart, windowEnd, readings, diabetesEntries, containerElId, emptyMessage } = opts;
+  const { windowStart, windowEnd, readings, diabetesEntries, containerElId } = opts;
   const rangeMs = windowEnd - windowStart;
-  if (!readings || !readings.length) return `<div class="track-note">${emptyMessage || 'Sin lecturas de glucosa.'}</div>`;
-
-  const sorted = readings.filter(p => p[0] >= windowStart && p[0] <= windowEnd).sort((p1, p2) => p1[0] - p2[0]);
-  if (!sorted.length) {
-    return `<div class="track-note">${emptyMessage || 'Sin lecturas de glucosa en este tramo.'}</div>`;
-  }
+  // El gráfico se dibuja SIEMPRE -- ejes, banda 70-180, franjas de sueño/
+  // actividad y marcadores de diabetes_log (🩸 glucómetro incluido) -- incluso
+  // sin ninguna lectura del sensor (p.ej. LibreLinkUp caído o sin sensor
+  // activo): hasReadings controla solo la línea/hueco/marcador de tendencia,
+  // nunca si el gráfico entero se muestra.
+  const sorted = (readings || []).filter(p => p[0] >= windowStart && p[0] <= windowEnd).sort((p1, p2) => p1[0] - p2[0]);
+  const hasReadings = sorted.length > 0;
 
   // padT/padB reserve two marker "lanes" outside the glucose plot area itself
   // (top: insulin/nota, bottom: comidas), on top of the usual axis margins --
@@ -2221,13 +2227,18 @@ function renderGlucoseChart(opts) {
   // >180), partida en huecos reales (> GLUCOSE_CHART_GAP_MS sin lectura) en vez
   // de unir puntos lejanos entre sí con una línea recta engañosa. ----
   const runs = [];
-  let cur = [sorted[0]];
-  for (let i = 1; i < sorted.length; i++) {
-    if (sorted[i][0] - sorted[i-1][0] > GLUCOSE_CHART_GAP_MS) { runs.push(cur); cur = [sorted[i]]; }
-    else cur.push(sorted[i]);
+  if (hasReadings) {
+    let cur = [sorted[0]];
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i][0] - sorted[i-1][0] > GLUCOSE_CHART_GAP_MS) { runs.push(cur); cur = [sorted[i]]; }
+      else cur.push(sorted[i]);
+    }
+    runs.push(cur);
   }
-  runs.push(cur);
-  const hasGap = runs.length > 1 || (windowEnd - sorted[sorted.length-1][0] > GLUCOSE_CHART_GAP_MS) || (sorted[0][0] - windowStart > GLUCOSE_CHART_GAP_MS);
+  // Sin ninguna lectura no hay "hueco" que señalar -- esa nota es sobre
+  // tramos sin dato DENTRO de una línea que por lo demás existe; el motivo de
+  // por qué no hay datos en absoluto ya se explica debajo del gráfico.
+  const hasGap = hasReadings && (runs.length > 1 || (windowEnd - sorted[sorted.length-1][0] > GLUCOSE_CHART_GAP_MS) || (sorted[0][0] - windowStart > GLUCOSE_CHART_GAP_MS));
 
   function crossing(p1, p2, threshold) {
     const [t1, v1] = p1, [t2, v2] = p2;
@@ -2249,10 +2260,11 @@ function renderGlucoseChart(opts) {
   });
   const lineSvg = lineParts.join('');
 
-  // ---- Marcador del valor actual + flecha de tendencia (solo "Hoy") ----
-  const lastPt = sorted[sorted.length-1];
-  const markerSvg = opts.showTrend ? `<circle cx="${x(lastPt[0]).toFixed(1)}" cy="${y(lastPt[1]).toFixed(1)}" r="4.5" fill="var(--surface-card)" stroke="${glucoseLineColor(lastPt[1])}" stroke-width="2.5"/>` : '';
-  const trendSvg = (opts.showTrend && opts.latest) ? `<text x="${(x(lastPt[0])+9).toFixed(1)}" y="${(y(lastPt[1])+4).toFixed(1)}" font-size="13" fill="${glucoseLineColor(lastPt[1])}">${opts.latest.trend_arrow}</text>` : '';
+  // ---- Marcador del valor actual + flecha de tendencia (solo "Hoy", y solo
+  // si hay alguna lectura del sensor que marcar) ----
+  const lastPt = hasReadings ? sorted[sorted.length-1] : null;
+  const markerSvg = (hasReadings && opts.showTrend) ? `<circle cx="${x(lastPt[0]).toFixed(1)}" cy="${y(lastPt[1]).toFixed(1)}" r="4.5" fill="var(--surface-card)" stroke="${glucoseLineColor(lastPt[1])}" stroke-width="2.5"/>` : '';
+  const trendSvg = (hasReadings && opts.showTrend && opts.latest) ? `<text x="${(x(lastPt[0])+9).toFixed(1)}" y="${(y(lastPt[1])+4).toFixed(1)}" font-size="13" fill="${glucoseLineColor(lastPt[1])}">${opts.latest.trend_arrow}</text>` : '';
 
   // ---- Eje X: horas en Europe/Madrid -- opts.xTicks explícito (días del
   // informe: 00/04/08/.../24 exactos, ver buildGlucoseDayChart) o generado
@@ -2333,6 +2345,16 @@ function renderGlucoseChart(opts) {
         tip.textContent = markerHit.isBg ? bgTooltipText(markerHit.m.e) : diabetesTooltipText(markerHit.m.e);
         return;
       }
+      if (!hasReadings) {
+        // Sin lecturas del sensor: no hay línea que seguir con el cursor,
+        // pero se deja clara la hora bajo el puntero igualmente.
+        hl.style.opacity = 0; hd.style.opacity = 0;
+        const ts = windowStart + (relX - padL) / (w - padL - padR) * rangeMs;
+        const b = bandAt(ts);
+        const ctx = b ? (b.kind === 'sleep' ? ' · 🌙 Durmiendo' : ` · ${(CAT_META[b.a.type]||{}).icon || '📍'} ${b.a.name || ''}`) : '';
+        tip.textContent = `${GLUCOSE_MADRID_FMT_TIME.format(new Date(ts))} · sin lectura del sensor${ctx}`;
+        return;
+      }
       let best = sorted[0], bestDiff = Infinity;
       sorted.forEach(p => { const diff = Math.abs(x(p[0]) - relX); if (diff < bestDiff) { bestDiff = diff; best = p; } });
       const cx = x(best[0]), cy = y(best[1]);
@@ -2375,7 +2397,6 @@ function buildTodayGlucoseChart(glucose) {
     readings: glucose.recent_series,
     diabetesEntries: diabetesLogDocs,
     containerElId: 'glucoseRow',
-    emptyMessage: `Sin lecturas de glucosa en las últimas ${glucoseChartRangeHours} h.`,
     showTrend: true,
     latest: glucose.latest,
     showRangeToggle: true,
@@ -2402,7 +2423,6 @@ function buildGlucoseDayChart(dateStr, dayReadings, dayDiabetesEntries) {
     readings: dayReadings,
     diabetesEntries: dayDiabetesEntries,
     containerElId: 'monthReportBody',
-    emptyMessage: 'Sin datos',
     showTrend: false,
     showRangeToggle: false,
     xTicks,
@@ -2556,10 +2576,17 @@ function renderTodayCard(todaySession) {
     const glucoseRowEl = document.getElementById('glucoseRow');
     const latestEl = document.getElementById('glucoseLatest');
     const tirEl = document.getElementById('glucoseTIR');
-    if (glucose.available) {
-      document.getElementById('glucoseLabel').textContent = 'Glucosa';
-      glucoseRowEl.className = 'glucose-row';
+    document.getElementById('glucoseLabel').textContent = 'Glucosa';
+    glucoseRowEl.className = 'glucose-row';
 
+    // El gráfico se dibuja SIEMPRE, con o sin lecturas del sensor -- así se
+    // ven igual las franjas de sueño/actividad y los marcadores de
+    // diabetes_log (incluidas las mediciones de glucómetro 🩸, que no
+    // dependen del sensor). El aviso de por qué no hay datos del sensor (si
+    // los falta) va debajo del gráfico, nunca lo oculta.
+    glucoseRowEl.innerHTML = buildTodayGlucoseChart(glucose);
+
+    if (glucose.available) {
       const latest = glucose.latest;
       if (latest) {
         const arrowCls = latest.trend === 'DOWN_FAST' ? 'down-fast' : (latest.trend === 'DOWN_SLOW' ? 'down' : '');
@@ -2571,8 +2598,6 @@ function renderTodayCard(todaySession) {
       } else {
         latestEl.innerHTML = '';
       }
-
-      glucoseRowEl.innerHTML = buildTodayGlucoseChart(glucose);
 
       const tir = glucose.time_in_range;
       if (tir && tir.available) {
@@ -2593,16 +2618,16 @@ function renderTodayCard(todaySession) {
 
       document.getElementById('glucoseNote').textContent = `Libre 2 vía LibreLinkUp · ventana de ~12h en cada sincronización`;
     } else {
-      document.getElementById('glucoseLabel').textContent = 'Glucosa';
       latestEl.innerHTML = '';
       tirEl.innerHTML = '';
-      glucoseRowEl.className = 'glucose-row unavailable';
-      glucoseRowEl.innerHTML = '';
       const reasonNote = {
         not_configured: 'Pendiente de conectar Libre 2',
         login_failed: 'No se pudo conectar con LibreLinkUp en la última sincronización',
         no_patient: 'Cuenta LibreLinkUp sin paciente vinculado',
-        no_readings: 'Sin lecturas recientes del sensor',
+        no_readings: 'Sin sensor activo o sin lecturas recientes',
+        tos_required: 'LibreLinkUp pide aceptar nuevas condiciones de uso — entra en la app/web de LibreLinkUp',
+        privacy_policy_required: 'LibreLinkUp pide aceptar una nueva política de privacidad — entra en la app/web de LibreLinkUp',
+        email_verification_required: 'LibreLinkUp pide verificar el email de la cuenta — entra en la app/web de LibreLinkUp',
       }[glucose.reason] || 'Sin datos de glucosa disponibles';
       document.getElementById('glucoseNote').textContent = reasonNote;
     }
@@ -2756,10 +2781,11 @@ renderTodayCard(null); // render immediately with defaults so the page is never 
     db.collection('diabetes_log').where('ts', '>=', diabetesCutoff).orderBy('ts', 'asc').limit(200).onSnapshot(
       (snap) => {
         diabetesLogDocs = snap.docs.map(d => d.data());
-        if (DATA.glucose && DATA.glucose.available) {
-          const el = document.getElementById('glucoseRow');
-          if (el) el.innerHTML = buildTodayGlucoseChart(DATA.glucose);
-        }
+        // El gráfico se redibuja siempre, haya o no datos del sensor -- las
+        // mediciones de glucómetro y demás marcadores de diabetes_log tienen
+        // que verse igual en ambos casos.
+        const el = document.getElementById('glucoseRow');
+        if (el) el.innerHTML = buildTodayGlucoseChart(DATA.glucose || { available: false });
       },
       (err) => console.error('diabetes_log onSnapshot error', err)
     );

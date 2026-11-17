@@ -350,7 +350,6 @@
   .today-block .tb-sub { font-size: 12.5px; color: var(--text-secondary); margin-top: 3px; line-height: 1.45; }
 
   .glucose-row { display: flex; gap: 16px; flex-wrap: wrap; }
-  .glucose-row.unavailable { opacity: 0.6; }
   .glucose-row .g-item { font-size: 12px; color: var(--text-secondary); }
   .glucose-row .g-item .v { font-weight: 700; color: var(--text-primary); font-family: "Bricolage Grotesque", system-ui, sans-serif; }
   .glucose-row .g-item.hypo .v { color: var(--critical); }

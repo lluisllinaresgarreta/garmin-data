@@ -27,6 +27,12 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 from dotenv import load_dotenv
 from pylibrelinkup import APIUrl, PyLibreLinkUp
+from pylibrelinkup.exceptions import (
+    EmailVerificationError,
+    PrivacyPolicyError,
+    RedirectError,
+    TermsOfUseError,
+)
 
 load_dotenv()
 
@@ -77,17 +83,34 @@ TREND_ARROW = {
 
 
 def login():
+    """Tries each region in turn, but a RedirectError (the account's real
+    region is a different one -- a NORMAL, expected part of this API, not a
+    failure) is followed immediately via its own .region instead of being
+    treated as that region's failed attempt and falling through to the next
+    one in REGIONS, which could waste every slot on the wrong hosts and
+    misreport this as a generic login_failed. TermsOfUseError/
+    PrivacyPolicyError/EmailVerificationError mean LibreLinkUp needs the
+    user to do something in their app/web account, not a code bug or wrong
+    credentials -- let the caller report that distinctly, don't swallow it
+    into the same login_failed bucket as everything else."""
     email = os.environ["LIBRE_EMAIL"]
     password = os.environ["LIBRE_PASSWORD"]
     last_err = None
     for region_name in REGIONS:
-        try:
-            client = PyLibreLinkUp(email=email, password=password, api_url=getattr(APIUrl, region_name))
-            client.authenticate()
-            return client
-        except Exception as e:
-            last_err = e
-            continue
+        region = getattr(APIUrl, region_name)
+        for _ in range(2):  # starting region + at most one redirect hop
+            try:
+                client = PyLibreLinkUp(email=email, password=password, api_url=region)
+                client.authenticate()
+                return client
+            except RedirectError as e:
+                region = e.region
+                continue
+            except (TermsOfUseError, PrivacyPolicyError, EmailVerificationError):
+                raise
+            except Exception as e:
+                last_err = e
+                break
     raise RuntimeError(f"No se pudo autenticar en ninguna region de LibreLinkUp: {last_err}")
 
 
@@ -314,6 +337,21 @@ def main():
     print("Conectando a LibreLinkUp...")
     try:
         client = login()
+    except (TermsOfUseError, PrivacyPolicyError, EmailVerificationError) as e:
+        # LibreLinkUp necesita que el usuario haga algo en su cuenta (aceptar
+        # condiciones/politica de privacidad, o verificar el email) -- no son
+        # credenciales incorrectas ni un fallo de este script, asi que se
+        # reportan distinto de login_failed para poder avisar de que hace
+        # falta una accion manual.
+        reason = {
+            "TermsOfUseError": "tos_required",
+            "PrivacyPolicyError": "privacy_policy_required",
+            "EmailVerificationError": "email_verification_required",
+        }[type(e).__name__]
+        print(f"LibreLinkUp requiere una accion manual del usuario (no bloqueante): {e}")
+        with open(DATA_DIR / "glucose.json", "w", encoding="utf-8") as f:
+            json.dump({"available": False, "reason": reason}, f, ensure_ascii=False, indent=2)
+        return
     except Exception as e:
         # Glucose is a bonus feature: never fail the overall sync over it, just
         # record that it's unavailable this run and let the rest proceed.
@@ -322,7 +360,16 @@ def main():
             json.dump({"available": False, "reason": "login_failed"}, f, ensure_ascii=False, indent=2)
         return
 
-    patients = client.get_patients()
+    try:
+        patients = client.get_patients()
+    except Exception as e:
+        # P.ej. sin sensor/lector activo puede fallar aqui en vez de con una
+        # lista vacia -- se trata igual que "sin lecturas", no como un fallo
+        # de conexion, porque el login en si ya funciono.
+        print(f"No se pudo obtener la lista de pacientes de LibreLinkUp (no bloqueante, probablemente sin sensor activo): {e}")
+        with open(DATA_DIR / "glucose.json", "w", encoding="utf-8") as f:
+            json.dump({"available": False, "reason": "no_readings"}, f, ensure_ascii=False, indent=2)
+        return
     if not patients:
         print("Login OK pero sin paciente vinculado en LibreLinkUp.")
         with open(DATA_DIR / "glucose.json", "w", encoding="utf-8") as f:
@@ -331,7 +378,15 @@ def main():
     patient = patients[0]
 
     print("Login OK. Descargando glucosa...")
-    readings = client.graph(patient_identifier=patient)
+    try:
+        readings = client.graph(patient_identifier=patient)
+    except Exception as e:
+        # Igual que arriba: un sensor caducado/sin lector activo puede dar un
+        # error aqui en vez de una lista vacia -- mismo trato no bloqueante.
+        print(f"No se pudieron descargar lecturas de LibreLinkUp (no bloqueante, probablemente sin sensor activo): {e}")
+        with open(DATA_DIR / "glucose.json", "w", encoding="utf-8") as f:
+            json.dump({"available": False, "reason": "no_readings"}, f, ensure_ascii=False, indent=2)
+        return
     if not readings:
         with open(DATA_DIR / "glucose.json", "w", encoding="utf-8") as f:
             json.dump({"available": False, "reason": "no_readings"}, f, ensure_ascii=False, indent=2)
